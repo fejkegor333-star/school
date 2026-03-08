@@ -12,6 +12,7 @@ desktop.ini
 # Резервные копии
 *.old
 *.backup
+*.json.bak
 
 # Логи
 *.log
@@ -24,3 +25,6 @@ desktop.ini
 
 # Локальные настройки
 .claude/settings.local.json
+
+# Старые версии
+map school*/
