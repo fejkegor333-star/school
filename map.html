@@ -1,0 +1,1870 @@
+<!--
+  ================================================================================
+  ⚠️ ВНИМАНИЕ: НЕ РЕДАКТИРОВАТЬ БЕЗ СОГЛАСИЯ!
+  ================================================================================
+  Навигатор по школе - Финальная версия
+  
+  Функции:
+  - Построение маршрутов по коридорам
+  - Маршруты между этажами через лестницы
+  - Загрузка карты из JSON
+  
+  Любые изменения должны быть согласованы!
+  ================================================================================
+-->
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Карта школы - Навигатор</title>
+    <style>
+        :root { --bg-body: #f0f0f0; --bg-workspace: #e0e0e0; --bg-toolbar: #333; --bg-btn: #555; --bg-select: #444; --text-toolbar: #fff; --text-label: #ccc; --text-select: #fff; --border-focus: #2196F3; }
+        [data-theme="dark"] { --bg-body: #0f172a; --bg-workspace: #1e293b; --bg-toolbar: #1e293b; --bg-btn: #334155; --bg-select: #334155; --text-toolbar: #f1f5f9; --text-label: #94a3b8; --text-select: #f1f5f9; --border-focus: #6366f1; }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Inter', 'Segoe UI', sans-serif; display: flex; height: 100vh; overflow: hidden; background: var(--bg-body); transition: background 0.3s; }
+        .workspace { flex: 1; display: flex; flex-direction: column; background: var(--bg-workspace); overflow: hidden; }
+        .floor-controls { display: flex; gap: 10px; padding: 10px; background: var(--bg-toolbar); align-items: center; transition: background 0.3s; }
+        .floor-controls label { color: var(--text-toolbar); font-weight: bold; transition: color 0.3s; }
+        .floor-btn { padding: 10px 20px; border: 2px solid transparent; border-radius: 8px; cursor: pointer; font-weight: 600; transition: all 0.3s; background: var(--bg-btn); color: var(--text-toolbar); font-size: 14px; }
+        .floor-btn.active { background: linear-gradient(135deg, #4CAF50 0%, #45a049 100%); border-color: rgba(255,255,255,0.2); box-shadow: 0 2px 8px rgba(76, 175, 80, 0.3); }
+        .floor-btn:hover:not(.active) { background: #666; transform: translateY(-1px); }
+        .floor-btn.highlight-floor { background: linear-gradient(135deg, #ff9800 0%, #f57c00 100%); animation: pulse 1.5s infinite; }
+        .floor-btn.route-floor { background: linear-gradient(135deg, #2196F3 0%, #1976D2 100%); animation: pulse 2s infinite; }
+        @keyframes pulse { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.8; transform: scale(1.02); } }
+        .map-container { flex: 1; position: relative; overflow: auto; padding: 20px; }
+        #mapCanvas { background: white; box-shadow: 0 4px 20px rgba(0,0,0,0.15); position: relative; border-radius: 12px; }
+        #floorBg { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 0; opacity: 0.5; }
+        #corridorsLayer { position: absolute; top: 0; left: 0; z-index: 5; pointer-events: none; }
+        #routeLayer { position: absolute; top: 0; left: 0; z-index: 20; pointer-events: none; }
+        .route-path { fill: none; stroke: #e91e63; stroke-width: 4; stroke-linecap: round; stroke-linejoin: round; opacity: 0.8; }
+        .map-object { position: absolute; border: 2px solid #333; cursor: default; display: flex; align-items: center; justify-content: center; text-align: center; font-weight: bold; user-select: none; z-index: 10; background: #fff; overflow: hidden; border-radius: 6px; }
+        .map-object.highlight { border-color: #4CAF50; box-shadow: 0 0 0 3px rgba(76, 175, 80, 0.5); }
+        .map-object .label { pointer-events: none; padding: 5px; word-break: break-word; text-shadow: 0 1px 2px rgba(0,0,0,0.1); }
+        .type-classroom { background: #e3f2fd; } .type-toilet { background: #fce4ec; } .type-stairs { background: #fff3e0; } .type-entrance { background: #e8f5e9; } .type-wardrobe { background: #f3e5f5; } .type-gym { background: #ffebee; } .type-act-hall { background: #e0f7fa; } .type-stage { background: #fff8e1; } .type-service { background: #eceff1; }
+        .toolbar { width: 380px; background: var(--bg-toolbar); color: var(--text-toolbar); padding: 24px; overflow-y: auto; display: flex; flex-direction: column; gap: 20px; transition: all 0.3s; box-shadow: -4px 0 20px rgba(0,0,0,0.1); }
+        .toolbar h2 { font-size: 22px; border-bottom: 2px solid rgba(255,255,255,0.1); padding-bottom: 16px; text-align: center; font-weight: 700; }
+        .toolbar h3 { font-size: 13px; color: var(--text-label); margin-bottom: 10px; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600; }
+        .search-form { display: flex; flex-direction: column; gap: 16px; }
+        .form-group { display: flex; flex-direction: column; gap: 8px; }
+        .form-group label { font-size: 12px; color: var(--text-label); font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; transition: color 0.3s; }
+        .form-group select { padding: 14px 16px; border: 2px solid rgba(255,255,255,0.1); border-radius: 10px; background: var(--bg-select); color: var(--text-select); font-size: 14px; cursor: pointer; transition: all 0.3s; font-family: inherit; }
+        .form-group select:focus { outline: none; border-color: var(--border-focus); box-shadow: 0 0 0 3px rgba(33, 150, 243, 0.15); }
+        .form-group select option { background: var(--bg-select); color: var(--text-select); padding: 10px; }
+        .action-buttons { display: flex; flex-direction: column; gap: 12px; }
+        .btn { padding: 14px 20px; border: none; border-radius: 10px; cursor: pointer; font-weight: 600; font-size: 14px; transition: all 0.3s; display: flex; align-items: center; justify-content: center; gap: 8px; font-family: inherit; }
+        .btn-primary { background: linear-gradient(135deg, #2196F3 0%, #1976D2 100%); color: white; box-shadow: 0 2px 8px rgba(33, 150, 243, 0.3); }
+        .btn-primary:hover { transform: translateY(-2px); box-shadow: 0 4px 16px rgba(33, 150, 243, 0.4); }
+        .btn-success { background: linear-gradient(135deg, #4CAF50 0%, #388E3C 100%); color: white; box-shadow: 0 2px 8px rgba(76, 175, 80, 0.3); }
+        .btn-success:hover { transform: translateY(-2px); box-shadow: 0 4px 16px rgba(76, 175, 80, 0.4); }
+        .btn-danger { background: linear-gradient(135deg, #f44336 0%, #d32f2f 100%); color: white; box-shadow: 0 2px 8px rgba(244, 67, 54, 0.3); }
+        .btn-danger:hover { transform: translateY(-2px); box-shadow: 0 4px 16px rgba(244, 67, 54, 0.4); }
+        .result-message { padding: 16px; border-radius: 10px; text-align: center; display: none; font-size: 14px; animation: slideIn 0.3s ease; }
+        @keyframes slideIn { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }
+        .result-message.success { background: rgba(76, 175, 80, 0.2); border: 1px solid #4CAF50; color: #81c784; }
+        .result-message.error { background: rgba(244, 67, 54, 0.2); border: 1px solid #f44336; color: #e57373; }
+        .result-message.warning { background: rgba(255, 152, 0, 0.2); border: 1px solid #ff9800; color: #ffb74d; }
+        .tooltip { font-size: 12px; color: var(--text-label); font-style: italic; line-height: 1.8; transition: color 0.3s; }
+        .loading { text-align: center; padding: 20px; color: var(--text-label); transition: color 0.3s; }
+        .theme-toggle { position: absolute; top: 16px; right: 16px; background: rgba(255,255,255,0.1); border: 2px solid rgba(255,255,255,0.2); color: var(--text-toolbar); padding: 10px 14px; border-radius: 10px; cursor: pointer; font-size: 18px; transition: all 0.3s; }
+        .theme-toggle:hover { background: rgba(255,255,255,0.2); transform: scale(1.05); }
+    </style>
+</head>
+<body>
+    <div class="workspace">
+        <div class="floor-controls">
+            <label>📍 Этаж:</label>
+            <button class="floor-btn active" data-floor="1">1 этаж</button>
+            <button class="floor-btn" data-floor="2">2 этаж</button>
+            <button class="floor-btn" data-floor="3">3 этаж</button>
+        </div>
+        <div class="map-container">
+            <div id="mapCanvas" style="width: 1200px; height: 800px;">
+                <img id="floorBg" src="1.png" alt="">
+                <svg id="corridorsLayer" width="1200" height="800"></svg>
+                <svg id="routeLayer" width="1200" height="800"></svg>
+            </div>
+        </div>
+    </div>
+    <div class="toolbar">
+        <h2>🧭 Навигатор</h2>
+        <button class="theme-toggle" onclick="toggleTheme()" title="Переключить тему">🌓</button>
+        <div id="loadingMsg" class="loading">Загрузка карты...</div>
+        <div id="searchForm" class="search-form" style="display: none;">
+            <div class="form-group">
+                <label>📍 Откуда (точка А):</label>
+                <select id="pointA"><option value="">Выберите...</option></select>
+            </div>
+            <div class="form-group">
+                <label>🏁 Куда (точка Б):</label>
+                <select id="pointB"><option value="">Выберите...</option></select>
+            </div>
+            <div class="action-buttons">
+                <button class="btn btn-success" onclick="buildRoute()">🗺️ Построить маршрут</button>
+                <button class="btn btn-danger" onclick="clearRoute()">🧹 Очистить маршрут</button>
+            </div>
+            <div id="resultMessage" class="result-message"></div>
+            <div id="floorSwitchMsg" class="result-message" style="background: #ff9800; display: none;">
+                🔄 <strong>Маршрут между этажами!</strong><br>
+                Сейчас вы на <span id="currentFloorNum">1</span> этаже.<br>
+                Нажмите кнопку <strong id="targetFloorBtn">2</strong> этажа сверху, чтобы продолжить маршрут.
+            </div>
+        </div>
+        <div>
+            <h3>ℹ️ Подсказки</h3>
+            <p class="tooltip">
+                • Выберите точку старта и назначения<br>
+                • Нажмите "Построить маршрут"<br>
+                • Красная линия покажет путь<br>
+                • План этажа отображается на фоне<br>
+                • Маршрут строится только по коридорам<br>
+                • 🔄 Для маршрута между этажами: следуйте инструкциям и нажимайте подсвеченные кнопки этажей
+            </p>
+        </div>
+    </div>
+    <script src="route-logic.js"></script>
+    <script>
+        let currentFloor = 1;
+        let objects = [];
+        let corridors = [];
+        let selectedRoute = null;
+        let multiFloorRoute = null;
+        let stairsConnections = [];
+        const searchableTypes = ['classroom', 'toilet', 'stairs', 'entrance', 'wardrobe', 'gym', 'act-hall', 'stage'];
+
+        function toggleTheme() {
+            const html = document.documentElement;
+            const current = html.getAttribute('data-theme');
+            html.setAttribute('data-theme', current === 'dark' ? 'light' : 'dark');
+            localStorage.setItem('theme', current === 'dark' ? 'light' : 'dark');
+        }
+        const savedTheme = localStorage.getItem('theme');
+        if (savedTheme) document.documentElement.setAttribute('data-theme', savedTheme);
+
+        document.addEventListener('DOMContentLoaded', function() {
+            initFloorButtons();
+            autoLoadMap();  // Автоматическая загрузка карты
+        });
+
+        // ============================================
+        // АВТОМАТИЧЕСКАЯ ЗАГРУЗКА КАРТЫ
+        // ============================================
+
+        function autoLoadMap() {
+            // Пробуем загрузить через fetch (работает на сервере)
+            fetch('school-map.json')
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error('Файл не найден');
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    loadMapData(data);
+                })
+                .catch(err => {
+                    console.log('⚠️ fetch не работает (локальный файл). Пробую альтернативный способ...');
+                    // Если fetch не работает (локально), пробуем через XHR
+                    loadMapLocal();
+                });
+        }
+
+        function loadMapLocal() {
+            const xhr = new XMLHttpRequest();
+            xhr.open('GET', 'school-map.json', false);  // Синхронный запрос
+            try {
+                xhr.send(null);
+                if (xhr.status === 200 || xhr.status === 0) {
+                    const data = JSON.parse(xhr.responseText);
+                    loadMapData(data);
+                    console.log('✅ Карта загружена локально');
+                    return;
+                }
+            } catch (e) {
+                // Игнорируем
+            }
+            
+            // Если не получилось — показываем форму загрузки
+            console.log('⚠️ Не удалось загрузить school-map.json автоматически');
+            document.getElementById('loadingMsg').textContent = 'Откройте файл через проводник:';
+            
+            // Добавляем кнопку загрузки
+            const loadBtn = document.createElement('div');
+            loadBtn.className = 'action-buttons';
+            loadBtn.style.marginTop = '10px';
+            loadBtn.innerHTML = '<button class="btn btn-primary" onclick="document.getElementById(\'loadFile\').click()">📂 Выбрать school-map.json</button><input type="file" id="loadFile" accept=".json" style="display: none;" onchange="loadMap(this)">';
+            document.querySelector('.toolbar').insertBefore(loadBtn, document.getElementById('searchForm'));
+        }
+
+        function loadMapData(data) {
+            objects = data.objects || [];
+            corridors = data.corridors || [];
+            console.log('✅ Карта автоматически загружена из school-map.json');
+            console.log('Загружено объектов:', objects.length);
+            console.log('Загружено коридоров:', corridors.length);
+
+            initStairsConnections();
+            populateSearchLists();
+            renderObjects();
+            drawCorridors();
+            document.getElementById('loadingMsg').style.display = 'none';
+            document.getElementById('searchForm').style.display = 'flex';
+        }
+
+        function loadMap(input) {
+            const file = input.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                try {
+                    const data = JSON.parse(e.target.result);
+                    loadMapData(data);
+                } catch (err) {
+                    console.error('Ошибка загрузки карты:', err);
+                    document.getElementById('loadingMsg').textContent = 'Ошибка! Неверный формат JSON';
+                }
+            };
+            reader.readAsText(file);
+        }
+
+        function populateSearchLists() {
+            const pointA = document.getElementById('pointA');
+            const pointB = document.getElementById('pointB');
+            const searchable = objects.filter(obj => searchableTypes.includes(obj.type));
+            searchable.sort((a, b) => {
+                if (a.floor !== b.floor) return a.floor - b.floor;
+                return a.label.localeCompare(b.label, 'ru');
+            });
+            pointA.innerHTML = '<option value="">Выберите...</option>';
+            pointB.innerHTML = '<option value="">Выберите...</option>';
+            searchable.forEach(obj => {
+                const optionText = obj.label + ' (' + (obj.type === 'classroom' ? 'каб.' : '') + getTypeName(obj.type) + ', ' + obj.floor + ' эт.)';
+                const optionA = document.createElement('option');
+                optionA.value = obj.id;
+                optionA.textContent = optionText;
+                const optionB = document.createElement('option');
+                optionB.value = obj.id;
+                optionB.textContent = optionText;
+                pointA.appendChild(optionA);
+                pointB.appendChild(optionB);
+            });
+        }
+
+        function getTypeName(type) {
+            const names = { 'classroom': 'кабинет', 'toilet': 'туалет', 'stairs': 'лестница', 'entrance': 'вход', 'wardrobe': 'гардероб', 'gym': 'спортзал', 'act-hall': 'актовый зал', 'stage': 'сцена' };
+            return names[type] || type;
+        }
+
+        function renderObjects() {
+            document.querySelectorAll('.map-object').forEach(el => el.remove());
+            objects.forEach(obj => {
+                const div = document.createElement('div');
+                div.id = 'obj-' + obj.id;
+                div.className = 'map-object type-' + obj.type;
+                div.style.left = obj.x + 'px';
+                div.style.top = obj.y + 'px';
+                div.style.width = obj.width + 'px';
+                div.style.height = obj.height + 'px';
+                div.style.display = obj.floor == currentFloor ? 'flex' : 'none';
+                const fontSize = Math.max(10, Math.min(obj.width, obj.height) / 5);
+                div.style.fontSize = fontSize + 'px';
+                const label = document.createElement('span');
+                label.className = 'label';
+                label.textContent = obj.label;
+                div.appendChild(label);
+                document.getElementById('mapCanvas').appendChild(div);
+            });
+        }
+
+        function initStairsConnections() {
+            stairsConnections = [];
+
+            const stairs = objects.filter(obj => obj.type === 'stairs');
+            const stairsByFloor = { 1: [], 2: [], 3: [] };
+            stairs.forEach(stair => {
+                if (stairsByFloor[stair.floor]) {
+                    // Если у лестницы нет stairId, присваиваем по id
+                    if (!stair.stairId) {
+                        stair.stairId = stair.id;
+                        console.warn('Лестница ' + stair.id + ' не имеет stairId, использован id');
+                    }
+                    stairsByFloor[stair.floor].push(stair);
+                }
+            });
+
+            // Соединяем лестницы по одинаковому stairId на соседних этажах
+            for (let floor = 1; floor < 3; floor++) {
+                stairsByFloor[floor].forEach(stair1 => {
+                    // Ищем лестницу с таким же stairId на следующем этаже
+                    const stair2 = stairsByFloor[floor + 1].find(s => s.stairId === stair1.stairId);
+
+                    if (stair2) {
+                        stairsConnections.push({
+                            from: stair1.id,
+                            to: stair2.id,
+                            fromFloor: floor,
+                            toFloor: floor + 1,
+                            stairId: stair1.stairId
+                        });
+                        console.log('Соединили лестницу ' + stair1.stairId + ' с этажа ' + floor + ' на этаж ' + (floor + 1));
+                    } else {
+                        console.warn('Лестница ' + stair1.stairId + ' на этаже ' + floor + ' не имеет пары на этаже ' + (floor + 1));
+                    }
+                });
+            }
+
+            console.log('Всего соединений лестниц:', stairsConnections.length);
+        }
+
+        function drawCorridors() {
+            document.getElementById('corridorsLayer').innerHTML = '';
+        }
+
+        function buildRoute() {
+            const pointA = parseInt(document.getElementById('pointA').value);
+            const pointB = parseInt(document.getElementById('pointB').value);
+            if (!pointA || !pointB) { showResult('Выберите обе точки маршрута!', 'error'); return; }
+            if (pointA === pointB) { showResult('Точки А и Б совпадают!', 'error'); return; }
+            const objA = objects.find(o => o.id === pointA);
+            const objB = objects.find(o => o.id === pointB);
+            if (!objA || !objB) { showResult('Объекты не найдены!', 'error'); return; }
+            if (objA.floor !== objB.floor) { buildMultiFloorRoute(objA, objB); return; }
+            buildSingleFloorRoute(objA, objB);
+        }
+
+        function buildSingleFloorRoute(objA, objB) {
+            hideFloorSwitchMsg();
+            multiFloorRoute = null;
+
+            // Получаем привязанные лестницы (поддержка как старого формата connectedStairId, так и нового connectedStairIds)
+            const getStairIds = (obj) => {
+                if (obj.connectedStairIds && obj.connectedStairIds.length > 0) {
+                    return obj.connectedStairIds;
+                }
+                if (obj.connectedStairId) {
+                    return [obj.connectedStairId];
+                }
+                return [];
+            };
+
+            const stairIdsA = getStairIds(objA);
+            const stairIdsB = getStairIds(objB);
+
+            // Проверяем, есть ли общая лестница
+            const commonStairId = stairIdsA.find(id => stairIdsB.includes(id));
+
+            let startObj = objA;
+            let endObj = objB;
+
+            // Если оба объекта привязаны к одной и той же лестнице, используем её
+            if (commonStairId) {
+                const stairA = objects.find(o => o.type === 'stairs' && o.stairId === commonStairId && o.floor === objA.floor);
+                const stairB = objects.find(o => o.type === 'stairs' && o.stairId === commonStairId && o.floor === objB.floor);
+                if (stairA && stairB) {
+                    startObj = stairA;
+                    endObj = stairB;
+                    console.log('Используем общую лестницу ' + commonStairId);
+                }
+            }
+
+            const startCorridorPoint = findNearestCorridorPoint(startObj);
+            const endCorridorPoint = findNearestCorridorPoint(endObj);
+
+            if (!startCorridorPoint || !endCorridorPoint) {
+                // Fallback: если нет коридоров, проверяем расстояние для прямого пути
+                const fromCenter = { x: startObj.x + startObj.width / 2, y: startObj.y + startObj.height / 2 };
+                const toCenter = { x: endObj.x + endObj.width / 2, y: endObj.y + endObj.height / 2 };
+                const dist = Math.sqrt(Math.pow(toCenter.x - fromCenter.x, 2) + Math.pow(toCenter.y - fromCenter.y, 2));
+
+                const maxDist = 150;
+
+                if (dist <= maxDist) {
+                    // Создаем прямой путь
+                    const segment = { path: [], from: objA, to: objB, floor: objA.floor, isDirect: true };
+                    multiFloorRoute = {
+                        objA: objA,
+                        objB: objB,
+                        startFloor: objA.floor,
+                        endFloor: objA.floor,
+                        direction: 'none',
+                        segments: [segment],
+                        isComplete: true
+                    };
+                    showRouteForCurrentFloor();
+                    highlightObjects([objA, objB]);
+                    showResult('Маршрут построен!', 'success');
+                    return;
+                }
+                showResult('Не удалось найти путь! Отсутствуют коридоры.', 'error');
+                return;
+            }
+
+            const graph = buildCorridorGraph();
+            const path = findShortestPath(graph, startCorridorPoint.id, endCorridorPoint.id);
+            if (!path || path.length === 0) {
+                // Fallback: если путь по коридорам не найден, пробуем прямой путь
+                const fromCenter = { x: startObj.x + startObj.width / 2, y: startObj.y + startObj.height / 2 };
+                const toCenter = { x: endObj.x + endObj.width / 2, y: endObj.y + endObj.height / 2 };
+                const dist = Math.sqrt(Math.pow(toCenter.x - fromCenter.x, 2) + Math.pow(toCenter.y - fromCenter.y, 2));
+
+                const maxDist = 150;
+
+                if (dist <= maxDist) {
+                    const segment = { path: [], from: objA, to: objB, floor: objA.floor, isDirect: true };
+                    multiFloorRoute = {
+                        objA: objA,
+                        objB: objB,
+                        startFloor: objA.floor,
+                        endFloor: objA.floor,
+                        direction: 'none',
+                        segments: [segment],
+                        isComplete: true
+                    };
+                    showRouteForCurrentFloor();
+                    highlightObjects([objA, objB]);
+                    showResult('Маршрут построен!', 'success');
+                    return;
+                }
+                showResult('Маршрут не найден!', 'error');
+                return;
+            }
+
+            // Обычный путь по коридорам
+            const segment = { path: path, from: objA, to: objB, floor: objA.floor, isDirect: false };
+            multiFloorRoute = {
+                objA: objA,
+                objB: objB,
+                startFloor: objA.floor,
+                endFloor: objA.floor,
+                direction: 'none',
+                segments: [segment],
+                isComplete: true
+            };
+            showRouteForCurrentFloor();
+            highlightObjects([objA, objB]);
+            showResult('Маршрут построен!', 'success');
+        }
+
+        function buildMultiFloorRoute(objA, objB) {
+            const startFloor = objA.floor;
+            const endFloor = objB.floor;
+
+            // Если на одном этаже - простой маршрут
+            if (startFloor === endFloor) {
+                buildSingleFloorRoute(objA, objB);
+                return;
+            }
+
+            // Для разных этажей - ищем маршрут через граф этажей
+            const route = findRouteThroughFloors(objA, objB, startFloor, endFloor);
+            if (!route) {
+                showResult('Не удалось построить маршрут!', 'error');
+                return;
+            }
+
+            // Сначала определяем оптимальную лестницу (stairId) для всего маршрута
+            // Для сложных маршрутов через промежуточные этажи предпочитаем использовать одну и ту же лестницу
+            let preferredStairId = null;
+
+            if (route.length > 2) {
+                // Для сложных маршрутов (через промежуточные этажи) ищем оптимальную лестницу
+                // Проверяем два случая:
+                // 1. Прямой маршрут (objA → ... → objB): ищем лестницу, привязанную к objB
+                // 2. Обратный маршрут (objB → ... → objA): ищем лестницу, привязанную к objA
+
+                // Случай 1: objB привязан к лестнице (прямой маршрут)
+                const startFloorStairs = objects.filter(o => o.type === 'stairs' && o.floor === objA.floor);
+
+                for (const startStair of startFloorStairs) {
+                    let currentStairId = startStair.stairId;
+                    let validRoute = true;
+
+                    // Проверяем, есть ли эта лестница на всех этажах маршрута
+                    for (let j = 0; j < route.length - 1; j++) {
+                        const checkFloor = route[j];
+                        const nextFloor = route[j + 1];
+
+                        const stairOnFloor = objects.find(o =>
+                            o.type === 'stairs' &&
+                            o.floor === checkFloor &&
+                            o.stairId === currentStairId
+                        );
+
+                        if (!stairOnFloor) {
+                            validRoute = false;
+                            break;
+                        }
+
+                        // Проверяем, есть ли соединение на следующий этаж
+                        const hasConnection = stairsConnections.some(c =>
+                            (c.from === stairOnFloor.id && c.toFloor === nextFloor) ||
+                            (c.to === stairOnFloor.id && c.fromFloor === nextFloor)
+                        );
+
+                        if (!hasConnection) {
+                            validRoute = false;
+                            break;
+                        }
+                    }
+
+                    if (validRoute) {
+                        // Проверяем, есть ли у objB привязка к этой лестнице
+                        if (objB.connectedStairIds && objB.connectedStairIds.includes(currentStairId)) {
+                            preferredStairId = currentStairId;
+                            console.log('Найдена оптимальная лестница для прямого маршрута (привязка к objB): ' + currentStairId);
+                            break;
+                        }
+                    }
+                }
+
+                // Случай 2: objA привязан к лестнице (обратный маршрут)
+                if (!preferredStairId) {
+                    const endFloorStairs = objects.filter(o => o.type === 'stairs' && o.floor === objB.floor);
+
+                    for (const endStair of endFloorStairs) {
+                        let currentStairId = endStair.stairId;
+                        let validRoute = true;
+
+                        // Проверяем, есть ли эта лестница на всех этажах маршрута (в обратном порядке)
+                        for (let j = 0; j < route.length - 1; j++) {
+                            const checkFloor = route[j];
+                            const nextFloor = route[j + 1];
+
+                            const stairOnFloor = objects.find(o =>
+                                o.type === 'stairs' &&
+                                o.floor === checkFloor &&
+                                o.stairId === currentStairId
+                            );
+
+                            if (!stairOnFloor) {
+                                validRoute = false;
+                                break;
+                            }
+
+                            // Проверяем, есть ли соединение на следующий этаж
+                            const hasConnection = stairsConnections.some(c =>
+                                (c.from === stairOnFloor.id && c.toFloor === nextFloor) ||
+                                (c.to === stairOnFloor.id && c.fromFloor === nextFloor)
+                            );
+
+                            if (!hasConnection) {
+                                validRoute = false;
+                                break;
+                            }
+                        }
+
+                        if (validRoute) {
+                            // Проверяем, есть ли у objA привязка к этой лестнице
+                            if (objA.connectedStairIds && objA.connectedStairIds.includes(currentStairId)) {
+                                preferredStairId = currentStairId;
+                                console.log('Найдена оптимальная лестница для обратного маршрута (привязка к objA): ' + currentStairId);
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Строим сегменты для каждого перехода
+            const segments = [];
+            let lastStairId = null; // Запоминаем последнюю использованную лестницу
+
+            for (let i = 0; i < route.length - 1; i++) {
+                const fromFloor = route[i];
+                const toFloor = route[i + 1];
+
+                // Находим лестницу на fromFloor
+                const stairFrom = findStairBetweenFloors(objA, objB, fromFloor, toFloor, i, preferredStairId, lastStairId, route.length);
+                if (!stairFrom) {
+                    showResult('Не найдена лестница с ' + fromFloor + ' на ' + toFloor + ' этаж!', 'error');
+                    return;
+                }
+
+                // Находим лестницу на toFloor
+                const stairTo = findConnectedStair(stairFrom, toFloor);
+                if (!stairTo) {
+                    showResult('Не найдено соединение лестниц!', 'error');
+                    return;
+                }
+
+                // Определяем объекты для сегмента
+                let segmentFrom, segmentTo, segmentFloor;
+
+                if (i === 0) {
+                    // Первый сегмент - от objA до лестницы на fromFloor
+                    segmentFrom = objA;
+                    segmentTo = stairFrom;
+                    segmentFloor = fromFloor;
+                } else if (i === route.length - 2) {
+                    // Последний сегмент - межэтажный переход + путь к objB
+                    // Сначала строим сегмент межэтажного перехода от stairFrom до stairTo
+                    segmentFrom = stairFrom;
+                    segmentTo = stairTo;
+                    segmentFloor = fromFloor;
+                    console.log('Последний сегмент (часть 1): межэтажный переход с ' + fromFloor + ' на ' + toFloor + ' этаж');
+                } else {
+                    // Промежуточные сегменты - межэтажный переход через stairFrom и stairTo
+                    // stairFrom на fromFloor, stairTo на toFloor
+                    segmentFrom = stairFrom;
+                    segmentTo = stairTo;
+                    segmentFloor = fromFloor;
+                    console.log('Промежуточный сегмент: межэтажный переход с ' + fromFloor + ' на ' + toFloor + ' этаж');
+                }
+
+                // Строим сегмент
+                console.log('Строим сегмент ' + i + ': от ' + segmentFrom.label + ' (' + segmentFrom.floor + ' эт) до ' + segmentTo.label + ' (' + segmentTo.floor + ' эт)');
+                // Для межэтажных переходов передаем логические fromFloor/toFloor из маршрута
+                const segment = buildRouteSegmentSmart(segmentFrom, segmentTo, segmentFloor, fromFloor, toFloor);
+                if (!segment) {
+                    console.error('Не удалось построить сегмент ' + i + ' на этаже ' + fromFloor);
+                    showResult('Не удалось построить маршрут на ' + fromFloor + ' этаже!', 'error');
+                    return;
+                }
+                console.log('Сегмент ' + i + ' построен успешно');
+                segments.push(segment);
+
+                // Обновляем lastStairId на основе stairId целевой лестницы сегмента
+                if (segmentTo.type === 'stairs') {
+                    lastStairId = segmentTo.stairId;
+                    console.log('Обновляем lastStairId на ' + lastStairId);
+                }
+            }
+
+            // Добавляем промежуточные сегменты для маршрутов между лестницами на промежуточных этажах
+            // Например, если маршрут [3, 2, 1, 2], то на этаже 1 нужно показать маршрут от лестницы 4 до лестницы 3
+            // ВАЖНО: Строим промежуточный сегмент, если на этаже есть два разных перехода
+            if (route.length > 2) {
+                // Пробегаем по всем этажам маршрута кроме первого и последнего
+                for (let floorIdx = 1; floorIdx < route.length - 1; floorIdx++) {
+                    const intermediateFloor = route[floorIdx];
+
+                    // Находим все межэтажные переходы, которые затрагивают этот этаж
+                    // Используем fromFloor/toFloor для определения логического направления
+                    const transitionsOnFloor = segments.filter(s =>
+                        s.isFloorTransition &&
+                        (s.fromFloor === intermediateFloor || s.toFloor === intermediateFloor)
+                    );
+
+                    console.log('На этаже ' + intermediateFloor + ' найдено переходов: ' + transitionsOnFloor.length);
+                    transitionsOnFloor.forEach((t, idx) => {
+                        console.log('  Переход ' + idx + ': fromFloor=' + t.fromFloor + ', toFloor=' + t.toFloor + ', from=' + t.from.label + '(floor=' + t.from.floor + '), to=' + t.to.label + '(floor=' + t.to.floor + ')');
+                    });
+
+                    // Если есть хотя бы 2 перехода на этом этаже
+                    if (transitionsOnFloor.length >= 2) {
+                        // Находим лестницы, которые участвуют в этих переходах
+                        // Входящий переход: приходим НА этот этаж (toFloor === intermediateFloor)
+                        const incomingTransition = transitionsOnFloor.find(s => s.toFloor === intermediateFloor);
+                        // Исходящий переход: уходим С этого этажа (fromFloor === intermediateFloor)
+                        const outgoingTransition = transitionsOnFloor.find(s => s.fromFloor === intermediateFloor && s !== incomingTransition);
+
+                        if (incomingTransition && outgoingTransition) {
+                            // Для входящего перехода мы ПРИХОДИМ на intermediateFloor, поэтому используем лестницу, которая НА этом этаже
+                            const incomingStair = incomingTransition.to;  // to находится на intermediateFloor
+                            // Для исходящего перехода мы УХОДИМ с intermediateFloor, поэтому используем лестницу, которая НА этом этаже
+                            const outgoingStair = outgoingTransition.from;  // from находится на intermediateFloor
+
+                            console.log('incomingStair: ' + incomingStair.label + ' (floor=' + incomingStair.floor + ', stairId=' + incomingStair.stairId + ')');
+                            console.log('outgoingStair: ' + outgoingStair.label + ' (floor=' + outgoingStair.floor + ', stairId=' + outgoingStair.stairId + ')');
+
+                            // Проверяем, что это разные лестницы
+                            if (incomingStair.stairId !== outgoingStair.stairId) {
+                                console.log('Строим промежуточный сегмент на этаже ' + intermediateFloor + ': от ' + incomingStair.label + ' (stairId=' + incomingStair.stairId + ') до ' + outgoingStair.label + ' (stairId=' + outgoingStair.stairId + ')');
+                                const intermediateSegment = buildRouteSegmentSmart(incomingStair, outgoingStair, intermediateFloor);
+                                if (intermediateSegment) {
+                                    segments.push(intermediateSegment);
+                                    console.log('Промежуточный сегмент на этаже ' + intermediateFloor + ' построен успешно');
+                                } else {
+                                    console.warn('Не удалось построить промежуточный сегмент на этаже ' + intermediateFloor + ' - игнорируем');
+                                }
+                            } else {
+                                console.log('На этаже ' + intermediateFloor + ' оба перехода используют одну лестницу (stairId=' + incomingStair.stairId + '), промежуточный сегмент не нужен');
+                            }
+                        } else {
+                            console.log('На этаже ' + intermediateFloor + ' найдено ' + transitionsOnFloor.length + ' переходов, но не удалось определить incoming/outgoing');
+                        }
+                    } else {
+                        console.log('На этаже ' + intermediateFloor + ' найдено только ' + transitionsOnFloor.length + ' переход(ов), пропускаем');
+                    }
+                }
+            }
+
+            // Добавляем финальный сегмент от последней лестницы на endFloor до objB
+            // Ищем последнюю использованную лестницу на endFloor
+            const finalStair = objects.find(o =>
+                o.type === 'stairs' &&
+                o.stairId === lastStairId &&
+                o.floor === endFloor
+            );
+
+            if (finalStair) {
+                console.log('Строим финальный сегмент: от ' + finalStair.label + ' (' + finalStair.floor + ' эт) до ' + objB.label + ' (' + objB.floor + ' эт)');
+                const finalSegment = buildRouteSegmentSmart(finalStair, objB, endFloor);
+                if (finalSegment) {
+                    segments.push(finalSegment);
+                    console.log('Финальный сегмент построен успешно');
+                } else {
+                    console.error('Не удалось построить финальный сегмент');
+                    showResult('Не удалось построить маршрут на ' + endFloor + ' этаже!', 'error');
+                    return;
+                }
+            } else {
+                console.error('Не найдена последняя лестница на ' + endFloor + ' этаже');
+                showResult('Не удалось построить маршрут на ' + endFloor + ' этаже!', 'error');
+                return;
+            }
+
+            // Сохраняем маршрут
+            const direction = endFloor > startFloor ? 'up' : 'down';
+            multiFloorRoute = {
+                objA: objA,
+                objB: objB,
+                startFloor: startFloor,
+                endFloor: endFloor,
+                direction: direction,
+                segments: segments,
+                isComplete: true
+            };
+
+            currentFloor = startFloor;
+            switchFloor(startFloor);
+            showRouteForCurrentFloor();
+            highlightObjects([objA, objB]);
+            showResult('Маршрут между этажами построен! Переключайте этажи для просмотра.', 'success');
+        }
+
+        function findRouteThroughFloors(objA, objB, startFloor, endFloor) {
+            // Используем BFS для поиска маршрута по графу этажей
+            const visited = new Set();
+            const queue = [[startFloor]];
+
+            // Для объектов в спортзале на 2 этаже, идущих на 3 этаж - сразу ищем через 1 этаж
+            const isGymOnFloor2GoingToFloor3 =
+                startFloor === 2 && endFloor === 3 &&
+                (objA.x > 400 || ['gym', 'act-hall', 'stage'].includes(objA.type));
+
+            // Для объектов с 3 этажа, идущих в спортзал на 2 этаже - тоже через 1 этаж
+            const isFloor3GoingToGymOnFloor2 =
+                startFloor === 3 && endFloor === 2 &&
+                (objB.x > 400 || ['gym', 'act-hall', 'stage'].includes(objB.type));
+
+            if (isGymOnFloor2GoingToFloor3 || isFloor3GoingToGymOnFloor2) {
+                console.log('Спортзал: нужен маршрут через 1 этаж');
+                // Вручную строим маршрут через 1 этаж
+                const path = startFloor === 2 ? [2, 1, 2, 3] : [3, 2, 1, 2];
+                console.log('Найден маршрут:', path.join(' → '));
+                return path;
+            }
+
+            while (queue.length > 0) {
+                const path = queue.shift();
+                const currentFloor = path[path.length - 1];
+
+                if (currentFloor === endFloor) {
+                    return path;
+                }
+
+                if (visited.has(currentFloor)) continue;
+                visited.add(currentFloor);
+
+                // Находим все этажи, куда можно попасть с currentFloor
+                const nextFloors = getAccessibleFloors(currentFloor);
+                for (const nextFloor of nextFloors) {
+                    if (!visited.has(nextFloor)) {
+                        queue.push([...path, nextFloor]);
+                    }
+                }
+            }
+
+            return null;
+        }
+
+        function getAccessibleFloors(fromFloor) {
+            const accessibleFloors = new Set();
+
+            stairsConnections.forEach(conn => {
+                if (conn.fromFloor === fromFloor) {
+                    accessibleFloors.add(conn.toFloor);
+                } else if (conn.toFloor === fromFloor) {
+                    accessibleFloors.add(conn.fromFloor);
+                }
+            });
+
+            return Array.from(accessibleFloors);
+        }
+
+        function findStairBetweenFloors(objA, objB, fromFloor, toFloor, segmentIndex, preferredStairId, lastStairId, routeLength) {
+            // Для последнего сегмента проверяем, есть ли у objB привязанная лестница, доступная с fromFloor
+            const isLastSegment = (segmentIndex === routeLength - 2);
+            if (isLastSegment) {
+                let objBStairIds = [];
+                if (objB.connectedStairIds && objB.connectedStairIds.length > 0) {
+                    objBStairIds = objB.connectedStairIds;
+                } else if (objB.connectedStairId) {
+                    objBStairIds = [objB.connectedStairId];
+                }
+
+                if (objBStairIds.length > 0) {
+                    for (const stairId of objBStairIds) {
+                        const objBStairOnFromFloor = objects.find(o =>
+                            o.type === 'stairs' &&
+                            o.stairId === stairId &&
+                            o.floor === fromFloor
+                        );
+
+                        if (objBStairOnFromFloor) {
+                            const hasConnection = stairsConnections.some(c =>
+                                (c.from === objBStairOnFromFloor.id && c.toFloor === toFloor) ||
+                                (c.to === objBStairOnFromFloor.id && c.fromFloor === toFloor)
+                            );
+
+                            if (hasConnection) {
+                                console.log('Последний сегмент: используем лестницу ' + stairId + ' (привязана к objB)');
+                                return objBStairOnFromFloor;
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Сначала проверяем, можно ли использовать preferredStairId (если задан)
+            if (preferredStairId) {
+                const preferredStair = objects.find(o =>
+                    o.type === 'stairs' &&
+                    o.stairId === preferredStairId &&
+                    o.floor === fromFloor
+                );
+
+                if (preferredStair) {
+                    const hasConnection = stairsConnections.some(c =>
+                        (c.from === preferredStair.id && c.toFloor === toFloor) ||
+                        (c.to === preferredStair.id && c.fromFloor === toFloor)
+                    );
+
+                    if (hasConnection) {
+                        console.log('Используем предпочтительную лестницу ' + preferredStair.stairId);
+                        return preferredStair;
+                    }
+                }
+            }
+
+            // Затем проверяем, можно ли продолжить через lastStairId (предыдущую лестницу)
+            // Это работает для всех сегментов, кроме первого
+            if (lastStairId && segmentIndex > 0) {
+                const continueStair = objects.find(o =>
+                    o.type === 'stairs' &&
+                    o.stairId === lastStairId &&
+                    o.floor === fromFloor
+                );
+
+                if (continueStair) {
+                    const hasConnection = stairsConnections.some(c =>
+                        (c.from === continueStair.id && c.toFloor === toFloor) ||
+                        (c.to === continueStair.id && c.fromFloor === toFloor)
+                    );
+
+                    if (hasConnection) {
+                        console.log('Продолжаем через лестницу ' + continueStair.stairId);
+                        return continueStair;
+                    }
+                }
+            }
+
+            // Для первого сегмента проверяем, есть ли у objA привязанные лестницы
+            if (segmentIndex === 0) {
+                // Получаем привязанные лестницы (поддержка обоих форматов)
+                let stairIds = [];
+                if (objA.connectedStairIds && objA.connectedStairIds.length > 0) {
+                    stairIds = objA.connectedStairIds;
+                } else if (objA.connectedStairId) {
+                    stairIds = [objA.connectedStairId];
+                }
+
+                if (stairIds.length > 0) {
+                    console.log('Объект ' + objA.label + ' привязан к лестницам: ' + stairIds.join(', '));
+
+                    // Пытаемся найти подходящую лестницу
+                    for (const stairId of stairIds) {
+                        const connectedStair = objects.find(o =>
+                            o.type === 'stairs' &&
+                            o.stairId === stairId &&
+                            o.floor === fromFloor
+                        );
+
+                        if (connectedStair) {
+                            // Проверяем, есть ли соединение на нужный этаж
+                            const hasConnection = stairsConnections.some(c =>
+                                (c.from === connectedStair.id && c.toFloor === toFloor) ||
+                                (c.to === connectedStair.id && c.fromFloor === toFloor)
+                            );
+
+                            if (hasConnection) {
+                                console.log('Используем привязанную лестницу ' + connectedStair.stairId + ' для перехода на этаж ' + toFloor);
+                                return connectedStair;
+                            }
+                        }
+                    }
+                    console.warn('Ни одна из привязанных лестниц не ведет на этаж ' + toFloor);
+                }
+            }
+
+            // Ищем любую лестницу с соединением на нужный этаж
+            const possibleStairs = objects.filter(o => o.type === 'stairs' && o.floor === fromFloor);
+            let bestStair = null;
+            let minDist = Infinity;
+
+            console.log('findStairBetweenFloors: fromFloor=' + fromFloor + ', toFloor=' + toFloor + ', segmentIndex=' + segmentIndex + ', possibleStairs=' + possibleStairs.length);
+
+            for (const stair of possibleStairs) {
+                const hasConnection = stairsConnections.some(c =>
+                    (c.from === stair.id && c.toFloor === toFloor) ||
+                    (c.to === stair.id && c.fromFloor === toFloor)
+                );
+
+                if (hasConnection) {
+                    console.log('Лестница ' + stair.stairId + ' имеет соединение на этаж ' + toFloor);
+
+                    // Определяем начальную точку
+                    const startPoint = (segmentIndex === 0 && fromFloor === objA.floor) ? objA : stair;
+
+                    const stairCenter = { x: stair.x + stair.width / 2, y: stair.y + stair.height / 2 };
+                    const pointCenter = { x: startPoint.x + startPoint.width / 2, y: startPoint.y + startPoint.height / 2 };
+                    const dist = Math.sqrt(Math.pow(stairCenter.x - pointCenter.x, 2) + Math.pow(stairCenter.y - pointCenter.y, 2));
+
+                    // Проверяем, можно ли построить маршрут
+                    const segment = buildRouteSegmentSmart(startPoint, stair, fromFloor);
+                    if (segment) {
+                        if (dist < minDist) {
+                            minDist = dist;
+                            bestStair = stair;
+                        }
+                    }
+                }
+            }
+
+            if (bestStair) {
+                console.log('Выбрана лестница ' + bestStair.stairId);
+            } else {
+                console.warn('Не найдена лестница с соединением на этаж ' + toFloor);
+            }
+
+            return bestStair;
+        }
+
+        function findConnectedStair(stair, targetFloor) {
+            const conn = stairsConnections.find(c =>
+                (c.from === stair.id && c.toFloor === targetFloor) ||
+                (c.to === stair.id && c.fromFloor === targetFloor)
+            );
+
+            if (!conn) return null;
+
+            const connectedId = conn.from === stair.id ? conn.to : conn.from;
+            return objects.find(o => o.id === connectedId);
+        }
+
+        function buildRouteSegmentSmart(fromObj, toObj, floor, logicalFromFloor, logicalToFloor) {
+            console.log('buildRouteSegmentSmart: от ' + fromObj.label + ' (этаж ' + fromObj.floor + ') до ' + toObj.label + ' (этаж ' + toObj.floor + ')');
+
+            // Если объекты на разных этажах - это межэтажный переход
+            if (fromObj.floor !== toObj.floor) {
+                console.log('Межэтажный переход detected');
+
+                // Для межэтажного перехода ВСЕГДА используем прямой путь с флагом isFloorTransition
+                // Используем логические fromFloor и toFloor, если они переданы, иначе физические
+                return {
+                    path: [],
+                    from: fromObj,
+                    to: toObj,
+                    floor: floor,
+                    isDirect: true,
+                    isFloorTransition: true,
+                    fromFloor: logicalFromFloor !== undefined ? logicalFromFloor : fromObj.floor,  // логический этаж, с которого уходим
+                    toFloor: logicalToFloor !== undefined ? logicalToFloor : toObj.floor      // логический этаж, на который приходим
+                };
+            }
+
+            const startPoint = findNearestCorridorPoint(fromObj);
+            const endPoint = findNearestCorridorPoint(toObj);
+
+            console.log('startPoint:', startPoint ? startPoint.id : 'null');
+            console.log('endPoint:', endPoint ? endPoint.id : 'null');
+
+            if (!startPoint || !endPoint) {
+                // Проверяем расстояние для прямого пути
+                const fromCenter = { x: fromObj.x + fromObj.width / 2, y: fromObj.y + fromObj.height / 2 };
+                const toCenter = { x: toObj.x + toObj.width / 2, y: toObj.y + toObj.height / 2 };
+                const dist = Math.sqrt(Math.pow(toCenter.x - fromCenter.x, 2) + Math.pow(toCenter.y - fromCenter.y, 2));
+
+                console.log('Нет коридорных точек, расстояние:', Math.round(dist) + 'px');
+
+                if (dist < 100) {
+                    console.log('Используем прямой путь (расстояние < 100px)');
+                    return { path: [], from: fromObj, to: toObj, floor: floor, isDirect: true };
+                }
+                console.error('Расстояние слишком велико для прямого пути');
+                return null;
+            }
+
+            const graph = buildCorridorGraph();
+            const path = findShortestPath(graph, startPoint.id, endPoint.id);
+
+            console.log('Путь по коридорам:', path ? path.length + ' точек' : 'не найден');
+
+            if (!path || path.length === 0) {
+                const fromCenter = { x: fromObj.x + fromObj.width / 2, y: fromObj.y + fromObj.height / 2 };
+                const toCenter = { x: toObj.x + toObj.width / 2, y: toObj.y + toObj.height / 2 };
+                const dist = Math.sqrt(Math.pow(toCenter.x - fromCenter.x, 2) + Math.pow(toCenter.y - fromCenter.y, 2));
+
+                console.log('Путь по коридорам не найден, расстояние:', Math.round(dist) + 'px');
+
+                if (dist < 100) {
+                    console.log('Используем прямой путь (расстояние < 100px)');
+                    return { path: [], from: fromObj, to: toObj, floor: floor, isDirect: true };
+                }
+                console.error('Не удалось построить маршрут');
+                return null;
+            }
+
+            console.log('Маршрут по коридорам построен успешно');
+            return { path: path, from: fromObj, to: toObj, floor: floor };
+        }
+
+        function tryBuildDirectRoute(objA, objB) {
+            const startFloor = objA.floor;
+            const endFloor = objB.floor;
+            const direction = endFloor > startFloor ? 'up' : 'down';
+
+            const segments = [];
+            let currentObj = objA;
+            let currentFloor = startFloor;
+
+            while (currentFloor !== endFloor) {
+                const nextFloor = currentFloor + (direction === 'up' ? 1 : -1);
+
+                // Находим все лестницы, которые ведут на следующий этаж
+                let possibleStairs = objects.filter(o => o.type === 'stairs' && o.floor === currentFloor);
+                possibleStairs = possibleStairs.filter(stair =>
+                    stairsConnections.some(c =>
+                        (c.from === stair.id && c.toFloor === nextFloor) ||
+                        (c.to === stair.id && c.fromFloor === nextFloor)
+                    )
+                );
+
+                if (possibleStairs.length === 0) {
+                    console.log('Нет лестниц с', currentFloor, 'на', nextFloor);
+                    return false;
+                }
+
+                // Находим ближайшую лестницу, до которой можно дойти по коридорам
+                let targetStair = null;
+                let minDist = Infinity;
+
+                for (const stair of possibleStairs) {
+                    const segment = buildRouteSegment(currentObj, stair, currentFloor);
+                    if (segment) {
+                        const stairCenter = { x: stair.x + stair.width / 2, y: stair.y + stair.height / 2 };
+                        const objCenter = { x: currentObj.x + currentObj.width / 2, y: currentObj.y + currentObj.height / 2 };
+                        const dist = Math.sqrt(Math.pow(stairCenter.x - objCenter.x, 2) + Math.pow(stairCenter.y - objCenter.y, 2));
+
+                        if (dist < minDist) {
+                            minDist = dist;
+                            targetStair = stair;
+                        }
+                    }
+                }
+
+                if (!targetStair) {
+                    console.log('Не удалось дойти до лестницы на', currentFloor, 'этаже');
+                    return false;
+                }
+
+                const segment = buildRouteSegment(currentObj, targetStair, currentFloor);
+                segments.push(segment);
+
+                // Переходим на следующий этаж
+                const conn = stairsConnections.find(c =>
+                    (c.from === targetStair.id && c.toFloor === nextFloor) ||
+                    (c.to === targetStair.id && c.fromFloor === nextFloor)
+                );
+
+                const nextStairId = conn.from === targetStair.id ? conn.to : conn.from;
+                const nextStair = objects.find(o => o.id === nextStairId);
+
+                currentObj = nextStair;
+                currentFloor = nextFloor;
+            }
+
+            // Финальный ������егмент
+            const finalSegment = buildRouteSegment(currentObj, objB, currentFloor);
+            if (!finalSegment) {
+                console.log('Не удалось дойти до цели на', currentFloor, 'этаже');
+                return false;
+            }
+            segments.push(finalSegment);
+
+            // Сохраняем и показываем маршрут
+            multiFloorRoute = {
+                objA: objA,
+                objB: objB,
+                startFloor: startFloor,
+                endFloor: endFloor,
+                direction: direction,
+                segments: segments,
+                isComplete: true
+            };
+
+            currentFloor = startFloor;
+            switchFloor(startFloor);
+            showRouteForCurrentFloor();
+            highlightObjects([objA, objB]);
+            showResult('Маршрут построен! Переключайте этажи д��я просмотра.', 'success');
+            return true;
+        }
+
+        function tryBuildRouteViaOtherFloors(objA, objB) {
+            const startFloor = objA.floor;
+            const endFloor = objB.floor;
+
+            // Ищем маршрут через промежуточные этажи
+            // Например: со 2 этажа в спортзале не можем пройти к лестнице на 3 этаж
+            // Тогда спускаемся на 1 этаж, там находим лестницу на 3 этаж
+
+            // Для каждого промежуточного этажа
+            const intermediateFloors = [];
+            if (startFloor === 2 && endFloor === 3) {
+                intermediateFloors.push(1);
+            } else if (startFloor === 3 && endFloor === 2) {
+                intermediateFloors.push(1);
+            }
+
+            for (const intermediateFloor of intermediateFloors) {
+                if (buildRouteViaFloor(objA, objB, intermediateFloor)) {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        function buildRouteViaFloor(objA, objB, viaFloor) {
+            const segments = [];
+
+            // 1. От objA до лестницы на её этаже, ведущей на viaFloor
+            // Используем buildRouteSegmentWithLongDistance - разрешаем большее расстояние
+            const stair1 = findBestReachableStairWithDistance(objA, viaFloor, 150);
+            if (!stair1) return false;
+
+            const seg1 = buildRouteSegmentWithDistance(objA, stair1, objA.floor, 150);
+            if (!seg1) return false;
+            segments.push(seg1);
+
+            // 2. Находим лестницу на viaFloor
+            const stair2 = objects.find(o =>
+                o.type === 'stairs' && o.floor === viaFloor &&
+                stairsConnections.some(c =>
+                    (c.from === stair1.id && c.to === o.id) ||
+                    (c.to === stair1.id && c.from === o.id)
+                )
+            );
+            if (!stair2) return false;
+
+            // 3. От лестницы на viaFloor до лестницы, ведущей на objB.floor (обычный поиск по коридорам)
+            const stair3 = findBestReachableStair(stair2, objB.floor);
+            if (!stair3) return false;
+
+            const seg2 = buildRouteSegment(stair2, stair3, viaFloor);
+            if (!seg2) return false;
+            segments.push(seg2);
+
+            // 4. Находим лестницу на objB.floor
+            const stair4 = objects.find(o =>
+                o.type === 'stairs' && o.floor === objB.floor &&
+                stairsConnections.some(c =>
+                    (c.from === stair3.id && c.to === o.id) ||
+                    (c.to === stair3.id && c.from === o.id)
+                )
+            );
+            if (!stair4) return false;
+
+            // 5. От лестницы на objB.floor до objB
+            const seg3 = buildRouteSegment(stair4, objB, objB.floor);
+            if (!seg3) return false;
+            segments.push(seg3);
+
+            // Сохраняем маршрут
+            const direction = objB.floor > objA.floor ? 'up' : 'down';
+            multiFloorRoute = {
+                objA: objA,
+                objB: objB,
+                startFloor: objA.floor,
+                endFloor: objB.floor,
+                direction: direction,
+                segments: segments,
+                isComplete: true
+            };
+
+            currentFloor = objA.floor;
+            switchFloor(objA.floor);
+            showRouteForCurrentFloor();
+            highlightObjects([objA, objB]);
+            showResult('Маршрут построен через ' + viaFloor + ' этаж! Переключайте этажи для просмотра.', 'success');
+            return true;
+        }
+
+        function findBestReachableStairWithDistance(obj, targetFloor, maxDistance) {
+            const stairsOnFloor = objects.filter(o => o.type === 'stairs' && o.floor === obj.floor);
+            let bestStair = null;
+            let minDist = Infinity;
+
+            for (const stair of stairsOnFloor) {
+                // Проверяем, есть ли соединение на нужный этаж
+                const hasConnection = stairsConnections.some(c =>
+                    (c.from === stair.id && c.toFloor === targetFloor) ||
+                    (c.to === stair.id && c.fromFloor === targetFloor)
+                );
+
+                if (hasConnection) {
+                    // Проверяем расстояние
+                    const stairCenter = { x: stair.x + stair.width / 2, y: stair.y + stair.height / 2 };
+                    const objCenter = { x: obj.x + obj.width / 2, y: obj.y + obj.height / 2 };
+                    const dist = Math.sqrt(Math.pow(stairCenter.x - objCenter.x, 2) + Math.pow(stairCenter.y - objCenter.y, 2));
+
+                    if (dist <= maxDistance && dist < minDist) {
+                        minDist = dist;
+                        bestStair = stair;
+                    }
+                }
+            }
+
+            return bestStair;
+        }
+
+        function buildRouteSegmentWithDistance(fromObj, toObj, floor, maxDistance) {
+            const startPoint = findNearestCorridorPoint(fromObj);
+            const endPoint = findNearestCorridorPoint(toObj);
+
+            if (!startPoint || !endPoint) {
+                // Проверяем расстояние между объектами
+                const fromCenter = { x: fromObj.x + fromObj.width / 2, y: fromObj.y + fromObj.height / 2 };
+                const toCenter = { x: toObj.x + toObj.width / 2, y: toObj.y + toObj.height / 2 };
+                const dist = Math.sqrt(Math.pow(toCenter.x - fromCenter.x, 2) + Math.pow(toCenter.y - fromCenter.y, 2));
+
+                // Если объекты в пределах допустимого расстояния, создаём прямой путь
+                if (dist <= maxDistance) {
+                    console.log('Объекты на расстоянии ' + Math.round(dist) + 'px (макс: ' + maxDistance + '), создаём прямой путь');
+                    return { path: [], from: fromObj, to: toObj, floor: floor, isDirect: true };
+                }
+
+                return null;
+            }
+
+            const graph = buildCorridorGraph();
+            const path = findShortestPath(graph, startPoint.id, endPoint.id);
+
+            if (!path || path.length === 0) {
+                // Проверяем расстояние между объектами
+                const fromCenter = { x: fromObj.x + fromObj.width / 2, y: fromObj.y + fromObj.height / 2 };
+                const toCenter = { x: toObj.x + toObj.width / 2, y: toObj.y + toObj.height / 2 };
+                const dist = Math.sqrt(Math.pow(toCenter.x - fromCenter.x, 2) + Math.pow(toCenter.y - fromCenter.y, 2));
+
+                // Если объекты в пределах допустимого расстояния, создаём прямой путь
+                if (dist <= maxDistance) {
+                    console.log('Не нашли путь по коридорам, но расстояние ' + Math.round(dist) + 'px (макс: ' + maxDistance + '), используем прямой путь');
+                    return { path: [], from: fromObj, to: toObj, floor: floor, isDirect: true };
+                }
+
+                return null;
+            }
+
+            return { path: path, from: fromObj, to: toObj, floor: floor };
+        }
+
+        function findBestReachableStair(obj, targetFloor) {
+            const stairsOnFloor = objects.filter(o => o.type === 'stairs' && o.floor === obj.floor);
+            let bestStair = null;
+            let minDist = Infinity;
+
+            for (const stair of stairsOnFloor) {
+                // Проверяем, есть ли соединение на нужный этаж
+                const hasConnection = stairsConnections.some(c =>
+                    (c.from === stair.id && c.toFloor === targetFloor) ||
+                    (c.to === stair.id && c.fromFloor === targetFloor)
+                );
+
+                if (hasConnection) {
+                    // Проверяем, можно ли дойти до лестницы по коридорам
+                    const segment = buildRouteSegment(obj, stair, obj.floor);
+                    if (segment) {
+                        const stairCenter = { x: stair.x + stair.width / 2, y: stair.y + stair.height / 2 };
+                        const objCenter = { x: obj.x + obj.width / 2, y: obj.y + obj.height / 2 };
+                        const dist = Math.sqrt(Math.pow(stairCenter.x - objCenter.x, 2) + Math.pow(stairCenter.y - objCenter.y, 2));
+
+                        if (dist < minDist) {
+                            minDist = dist;
+                            bestStair = stair;
+                        }
+                    }
+                }
+            }
+
+            return bestStair;
+        }
+
+        function buildMultiFloorRouteViaIntermediateFloor(objA, objB, intermediateFloor) {
+            const segments = [];
+
+            // 1. Строим маршрут от objA до лестницы на этаже objA
+            let targetStair = findBestStairForFloor(objA, intermediateFloor);
+            if (!targetStair) {
+                showResult('Не найдена лестница на ' + objA.floor + ' этаже!', 'error');
+                return;
+            }
+
+            const segment1 = buildRouteSegment(objA, targetStair, objA.floor);
+            if (!segment1) {
+                showResult('Не удалось построить маршрут до лестницы на ' + objA.floor + ' этаже!', 'error');
+                return;
+            }
+            segments.push(segment1);
+
+            // 2. Находим лестницу на промежуточном этаже
+            const stairOnIntermediate = objects.find(o =>
+                o.type === 'stairs' && o.floor === intermediateFloor &&
+                stairsConnections.some(c =>
+                    (c.from === targetStair.id && c.to === o.id) ||
+                    (c.to === targetStair.id && c.from === o.id)
+                )
+            );
+
+            if (!stairOnIntermediate) {
+                showResult('Не найдено соединение лестниц!', 'error');
+                return;
+            }
+
+            // 3. Строим маршрут от лестницы на промежуточном этаже до лестницы на 3 этаж
+            const targetStair3 = findBestStairForFloor(stairOnIntermediate, 3);
+            if (!targetStair3) {
+                showResult('Не найдена лестница на 3 этаж!', 'error');
+                return;
+            }
+
+            const segment2 = buildRouteSegment(stairOnIntermediate, targetStair3, intermediateFloor);
+            if (!segment2) {
+                showResult('Не удалось построить маршрут на ' + intermediateFloor + ' этаже!', 'error');
+                return;
+            }
+            segments.push(segment2);
+
+            // 4. Находим лестницу на 3 этаже
+            const stairOnFloor3 = objects.find(o =>
+                o.type === 'stairs' && o.floor === 3 &&
+                stairsConnections.some(c =>
+                    (c.from === targetStair3.id && c.to === o.id) ||
+                    (c.to === targetStair3.id && c.from === o.id)
+                )
+            );
+
+            if (!stairOnFloor3) {
+                showResult('Не найдено соединение лестниц на 3 этаж!', 'error');
+                return;
+            }
+
+            // 5. Строим финальный сегмент от лестницы на 3 этаже до objB
+            const segment3 = buildRouteSegment(stairOnFloor3, objB, 3);
+            if (!segment3) {
+                showResult('Не удалось построить маршрут на 3 этаже!', 'error');
+                return;
+            }
+            segments.push(segment3);
+
+            // Сохраняем маршрут
+            multiFloorRoute = {
+                objA: objA,
+                objB: objB,
+                startFloor: objA.floor,
+                endFloor: objB.floor,
+                direction: 'up',
+                segments: segments,
+                isComplete: true
+            };
+
+            currentFloor = objA.floor;
+            switchFloor(objA.floor);
+            showRouteForCurrentFloor();
+            highlightObjects([objA, objB]);
+            showResult('Маршрут построен через ' + intermediateFloor + ' этаж! Переключайте этажи для просмотра.', 'success');
+        }
+
+        function findBestStairForFloor(obj, targetFloor) {
+            const stairsOnFloor = objects.filter(o => o.type === 'stairs' && o.floor === obj.floor);
+            let bestStair = null;
+            let minDist = Infinity;
+
+            for (const stair of stairsOnFloor) {
+                const hasConnection = stairsConnections.some(c =>
+                    (c.from === stair.id && c.toFloor === targetFloor) ||
+                    (c.to === stair.id && c.fromFloor === targetFloor)
+                );
+
+                if (hasConnection) {
+                    const stairCenter = { x: stair.x + stair.width / 2, y: stair.y + stair.height / 2 };
+                    const objCenter = { x: obj.x + obj.width / 2, y: obj.y + obj.height / 2 };
+                    const dist = Math.sqrt(Math.pow(stairCenter.x - objCenter.x, 2) + Math.pow(stairCenter.y - objCenter.y, 2));
+
+                    if (dist < minDist) {
+                        minDist = dist;
+                        bestStair = stair;
+                    }
+                }
+            }
+
+            return bestStair;
+        }
+
+        function buildRouteSegment(fromObj, toObj, floor) {
+            const startPoint = findNearestCorridorPoint(fromObj);
+            const endPoint = findNearestCorridorPoint(toObj);
+
+            if (!startPoint || !endPoint) {
+                // Проверяем расстояние между объектами
+                const fromCenter = { x: fromObj.x + fromObj.width / 2, y: fromObj.y + fromObj.height / 2 };
+                const toCenter = { x: toObj.x + toObj.width / 2, y: toObj.y + toObj.height / 2 };
+                const dist = Math.sqrt(Math.pow(toCenter.x - fromCenter.x, 2) + Math.pow(toCenter.y - fromCenter.y, 2));
+
+                // Если объекты очень близко (например, сцена и соседняя лестница), создаём короткий прямой путь
+                if (dist < 60) {
+                    console.log('Объекты очень близко (' + Math.round(dist) + 'px), создаём короткий прямой путь');
+                    return { path: [], from: fromObj, to: toObj, floor: floor, isDirect: true };
+                }
+
+                return null;
+            }
+
+            const graph = buildCorridorGraph();
+            const path = findShortestPath(graph, startPoint.id, endPoint.id);
+
+            if (!path || path.length === 0) {
+                // Проверяем расстояние между объектами
+                const fromCenter = { x: fromObj.x + fromObj.width / 2, y: fromObj.y + fromObj.height / 2 };
+                const toCenter = { x: toObj.x + toObj.width / 2, y: toObj.y + toObj.height / 2 };
+                const dist = Math.sqrt(Math.pow(toCenter.x - fromCenter.x, 2) + Math.pow(toCenter.y - fromCenter.y, 2));
+
+                // Если объекты очень близко, создаём короткий прямой путь
+                if (dist < 60) {
+                    console.log('Не нашли путь по коридорам, но объекты близко (' + Math.round(dist) + 'px), используем прямой путь');
+                    return { path: [], from: fromObj, to: toObj, floor: floor, isDirect: true };
+                }
+
+                return null;
+            }
+
+            return { path: path, from: fromObj, to: toObj, floor: floor };
+        }
+
+        function buildStandardMultiFloorRoute(objA, objB) {
+            const startFloor = objA.floor;
+            const endFloor = objB.floor;
+            const direction = endFloor > startFloor ? 'up' : 'down';
+
+            const segments = [];
+            let currentObj = objA;
+            let currentFloor = startFloor;
+
+            while (currentFloor !== endFloor) {
+                const nextFloor = currentFloor + (direction === 'up' ? 1 : -1);
+
+                let targetStair = findBestStairForFloor(currentObj, nextFloor);
+                if (!targetStair) {
+                    showResult('Не найдено соединение лестниц на этаже ' + currentFloor + '!', 'error');
+                    return;
+                }
+
+                const segment = buildRouteSegment(currentObj, targetStair, currentFloor);
+                if (!segment) {
+                    showResult('Маршрут к лестнице не найден на ' + currentFloor + ' этаже!', 'error');
+                    return;
+                }
+                segments.push(segment);
+
+                const conn = stairsConnections.find(c =>
+                    (c.from === targetStair.id && c.toFloor === nextFloor) ||
+                    (c.to === targetStair.id && c.fromFloor === nextFloor)
+                );
+
+                if (!conn) {
+                    showResult('Не найдено соединение лестниц на этаже ' + currentFloor + '!', 'error');
+                    return;
+                }
+
+                const nextStairId = conn.from === targetStair.id ? conn.to : conn.from;
+                const nextStair = objects.find(o => o.id === nextStairId);
+                if (!nextStair) {
+                    showResult('Лестница не найдена на этаже ' + nextFloor + '!', 'error');
+                    return;
+                }
+
+                currentObj = nextStair;
+                currentFloor = nextFloor;
+            }
+
+            const finalSegment = buildRouteSegment(currentObj, objB, currentFloor);
+            if (!finalSegment) {
+                showResult('Маршрут на целевом этаже не найден!', 'error');
+                return;
+            }
+            segments.push(finalSegment);
+
+            multiFloorRoute = {
+                objA: objA,
+                objB: objB,
+                startFloor: startFloor,
+                endFloor: endFloor,
+                direction: direction,
+                segments: segments,
+                isComplete: true
+            };
+
+            currentFloor = startFloor;
+            switchFloor(startFloor);
+            showRouteForCurrentFloor();
+            highlightObjects([objA, objB]);
+            showResult('Маршрут между этажами построен! Переключайте этажи для просмотра.', 'success');
+        }
+
+        function switchFloor(floor) {
+            const floorButtons = document.querySelectorAll('.floor-btn');
+            floorButtons.forEach(btn => {
+                btn.classList.remove('active');
+                if (parseInt(btn.dataset.floor) === floor) {
+                    btn.classList.add('active');
+                }
+            });
+            const bgImg = document.getElementById('floorBg');
+            if (floor === 2) bgImg.src = '2.new.png';
+            else bgImg.src = floor + '.png';
+            updateObjectVisibility();
+        }
+
+        function findNearestCorridorPoint(obj) {
+            const objCenter = { x: obj.x + obj.width / 2, y: obj.y + obj.height / 2 };
+            let nearestPoint = null;
+            let minDist = Infinity;
+            const relevantCorridors = corridors.filter(c => c.floor === obj.floor);
+
+            console.log('Ищем ближайшую точку коридора для', obj.label, 'на этаже', obj.floor, 'Всего коридоров:', relevantCorridors.length);
+
+            if (relevantCorridors.length === 0) {
+                console.warn('Нет коридоров на этаже', obj.floor);
+                return null;
+            }
+
+            relevantCorridors.forEach(corridor => {
+                corridor.points.forEach((point, index) => {
+                    // Для 3 этажа игнорируем точки с X > 200 (зона спортзала)
+                    if (corridor.floor === 3 && point.x > 200) return;
+                    const dist = Math.sqrt(Math.pow(point.x - objCenter.x, 2) + Math.pow(point.y - objCenter.y, 2));
+                    if (dist < minDist) {
+                        minDist = dist;
+                        nearestPoint = { id: 'c' + corridor.id + '_p' + index, x: point.x, y: point.y, corridorId: corridor.id, pointIndex: index };
+                    }
+                });
+            });
+
+            if (nearestPoint) {
+                console.log('Найдена ближайшая точка:', nearestPoint.id, 'расстояние:', Math.round(minDist));
+            } else {
+                console.warn('Не найдено ни одной точки коридора для', obj.label);
+            }
+
+            return nearestPoint;
+        }
+
+        function buildCorridorGraph() {
+            const graph = {};
+            const pointDistance = 100; // Расстояние для соединения точек разных коридоров на пересечениях
+
+            // Создаем связи внутри каждого коридора и между коридорами
+            corridors.forEach(corridor => {
+                for (let i = 0; i < corridor.points.length; i++) {
+                    const pointId = 'c' + corridor.id + '_p' + i;
+                    graph[pointId] = [];
+                    if (i > 0) {
+                        const prevPoint = corridor.points[i - 1];
+                        const currPoint = corridor.points[i];
+                        const dist = Math.sqrt(Math.pow(currPoint.x - prevPoint.x, 2) + Math.pow(currPoint.y - prevPoint.y, 2));
+                        graph[pointId].push({ id: 'c' + corridor.id + '_p' + (i - 1), dist: dist });
+                    }
+                    if (i < corridor.points.length - 1) {
+                        const nextPoint = corridor.points[i + 1];
+                        const currPoint = corridor.points[i];
+                        const dist = Math.sqrt(Math.pow(currPoint.x - nextPoint.x, 2) + Math.pow(currPoint.y - nextPoint.y, 2));
+                        graph[pointId].push({ id: 'c' + corridor.id + '_p' + (i + 1), dist: dist });
+                    }
+                }
+            });
+
+            // Создаем связи между точками разных коридоров (только на одном этаже)
+            const allPoints = [];
+            corridors.forEach(corridor => {
+                corridor.points.forEach((point, index) => {
+                    // Для 3 этажа игнорируем точки с X > 200 (зона спортзала)
+                    if (corridor.floor === 3 && point.x > 200) return;
+                    allPoints.push({ id: 'c' + corridor.id + '_p' + index, x: point.x, y: point.y, floor: corridor.floor || 1 });
+                });
+            });
+
+            for (let i = 0; i < allPoints.length; i++) {
+                for (let j = i + 1; j < allPoints.length; j++) {
+                    const p1 = allPoints[i];
+                    const p2 = allPoints[j];
+
+                    // Соединяем только точки на одном этаже
+                    if (p1.floor !== p2.floor) continue;
+
+                    const dist = Math.sqrt(Math.pow(p2.x - p1.x, 2) + Math.pow(p2.y - p1.y, 2));
+
+                    // Создаем связь если точки достаточно близко
+                    if (dist < pointDistance && dist > 0) {
+                        if (!graph[p1.id]) graph[p1.id] = [];
+                        if (!graph[p2.id]) graph[p2.id] = [];
+                        if (!graph[p1.id].some(n => n.id === p2.id)) graph[p1.id].push({ id: p2.id, dist: dist });
+                        if (!graph[p2.id].some(n => n.id === p1.id)) graph[p2.id].push({ id: p1.id, dist: dist });
+                    }
+                }
+            }
+            return graph;
+        }
+
+        function findShortestPath(graph, start, end) {
+            const distances = {};
+            const previous = {};
+            const unvisited = new Set();
+            for (const node in graph) { distances[node] = Infinity; previous[node] = null; unvisited.add(node); }
+            distances[start] = 0;
+            while (unvisited.size > 0) {
+                let current = null;
+                let minDist = Infinity;
+                for (const node of unvisited) { if (distances[node] < minDist) { minDist = distances[node]; current = node; } }
+                if (current === null || minDist === Infinity) break;
+                if (current === end) break;
+                unvisited.delete(current);
+                for (const neighbor of graph[current]) {
+                    const altDist = distances[current] + neighbor.dist;
+                    if (altDist < distances[neighbor.id]) { distances[neighbor.id] = altDist; previous[neighbor.id] = current; }
+                }
+            }
+            if (distances[end] === Infinity) return null;
+            const path = [];
+            let current = end;
+            while (current !== null) { path.unshift(current); current = previous[current]; }
+            return path;
+        }
+
+        function drawRoute(path, objA, objB) {
+            const svg = document.getElementById('routeLayer');
+            svg.innerHTML = '';
+            const allPoints = [];
+            allPoints.push({ x: objA.x + objA.width / 2, y: objA.y + objA.height / 2 });
+
+            // Проверяем, может это прямой путь (без коридоров)
+            if (path && Array.isArray(path) && path.length === 0) {
+                // Прямой путь от objA до objB
+                allPoints.push({ x: objB.x + objB.width / 2, y: objB.y + objB.height / 2 });
+            } else {
+                // Обычный путь по коридорам
+                path.forEach(pointId => {
+                    const parts = pointId.split('_p');
+                    const corridorId = parseInt(parts[0].substring(1));
+                    const pointIndex = parseInt(parts[1]);
+                    const corridor = corridors.find(c => c.id === corridorId);
+                    if (corridor && corridor.points[pointIndex]) allPoints.push(corridor.points[pointIndex]);
+                });
+                allPoints.push({ x: objB.x + objB.width / 2, y: objB.y + objB.height / 2 });
+            }
+
+            if (allPoints.length < 2) return;
+            let d = 'M ' + allPoints[0].x + ' ' + allPoints[0].y;
+            for (let i = 1; i < allPoints.length; i++) d += ' L ' + allPoints[i].x + ' ' + allPoints[i].y;
+            const pathElement = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+            pathElement.setAttribute('d', d);
+            pathElement.setAttribute('fill', 'none');
+            pathElement.setAttribute('stroke', '#e91e63');
+            pathElement.setAttribute('stroke-width', '4');
+            pathElement.setAttribute('stroke-linecap', 'round');
+            pathElement.setAttribute('stroke-linejoin', 'round');
+            pathElement.setAttribute('opacity', '0.8');
+            pathElement.classList.add('route-path');
+            svg.appendChild(pathElement);
+            selectedRoute = path;
+        }
+
+        function highlightObjects(objs) {
+            document.querySelectorAll('.map-object.highlight').forEach(el => el.classList.remove('highlight'));
+            objs.forEach(obj => {
+                const el = document.getElementById('obj-' + obj.id);
+                if (el) el.classList.add('highlight');
+            });
+        }
+
+        function clearRoute() {
+            document.getElementById('routeLayer').innerHTML = '';
+            document.getElementById('resultMessage').className = 'result-message';
+            document.getElementById('resultMessage').textContent = '';
+            selectedRoute = null;
+            multiFloorRoute = null;
+            document.querySelectorAll('.map-object.highlight').forEach(el => el.classList.remove('highlight'));
+            document.querySelectorAll('.floor-btn.route-floor').forEach(el => el.classList.remove('route-floor'));
+            hideFloorSwitchMsg();
+        }
+
+        function showResult(message, type) {
+            const msg = document.getElementById('resultMessage');
+            msg.textContent = message;
+            msg.className = 'result-message ' + type;
+        }
+
+        function showFloorSwitchMsg(targetStair, direction) {
+            const nextFloor = direction === 'up' ? currentFloor + 1 : currentFloor - 1;
+            const msg = document.getElementById('floorSwitchMsg');
+            document.getElementById('currentFloorNum').textContent = currentFloor;
+            document.getElementById('targetFloorBtn').textContent = nextFloor;
+            msg.style.display = 'block';
+            document.querySelectorAll('.floor-btn').forEach(btn => {
+                btn.classList.remove('highlight-floor');
+                if (parseInt(btn.dataset.floor) === nextFloor) btn.classList.add('highlight-floor');
+            });
+        }
+
+        function hideFloorSwitchMsg() {
+            const msg = document.getElementById('floorSwitchMsg');
+            msg.style.display = 'none';
+            document.querySelectorAll('.floor-btn').forEach(btn => btn.classList.remove('highlight-floor'));
+        }
+
+        function initFloorButtons() {
+            const buttons = document.querySelectorAll('.floor-btn');
+            buttons.forEach(btn => {
+                btn.addEventListener('click', function() {
+                    buttons.forEach(b => b.classList.remove('active'));
+                    this.classList.add('active');
+                    currentFloor = parseInt(this.dataset.floor);
+                    const bgImg = document.getElementById('floorBg');
+                    if (currentFloor === 2) bgImg.src = '2.new.png';
+                    else bgImg.src = currentFloor + '.png';
+                    updateObjectVisibility();
+                    // Показываем сегмент маршрута для текущего этажа
+                    if (multiFloorRoute) {
+                        showRouteForCurrentFloor();
+                    }
+                });
+            });
+        }
+
+        function showRouteForCurrentFloor() {
+            const svg = document.getElementById('routeLayer');
+            svg.innerHTML = '';
+
+            if (!multiFloorRoute || !multiFloorRoute.segments || multiFloorRoute.segments.length === 0) return;
+
+            // Подсвечиваем кнопки этажей, через которые проходит маршрут
+            const floorButtons = document.querySelectorAll('.floor-btn');
+            const routeFloors = multiFloorRoute.segments.map(s => s.floor);
+
+            floorButtons.forEach(btn => {
+                const floorNum = parseInt(btn.dataset.floor);
+                btn.classList.remove('route-floor');
+                if (routeFloors.includes(floorNum)) {
+                    btn.classList.add('route-floor');
+                }
+            });
+
+            // Показываем сегмент для текущего этажа
+            // Сначала ищем обычный сегмент на текущем этаже (не межэтажный переход)
+            let segment = multiFloorRoute.segments.find(s =>
+                !s.isFloorTransition && s.floor === currentFloor
+            );
+
+            // Если нет обычного сегмента, ищем межэтажный переход
+            // Для межэтажного перехода выбираем тот, который затрагивает текущий этаж
+            if (!segment) {
+                // Ищем все межэтажные переходы, затрагивающие текущий этаж
+                const transitionSegments = multiFloorRoute.segments.filter(s =>
+                    s.isFloorTransition &&
+                    (s.fromFloor === currentFloor || s.toFloor === currentFloor ||
+                     s.from.floor === currentFloor || s.to.floor === currentFloor)
+                );
+
+                if (transitionSegments.length > 0) {
+                    // Если есть несколько, выбираем первый (они равнозначны для отображения)
+                    segment = transitionSegments[0];
+                }
+            }
+
+            if (!segment) return;
+
+            const allPoints = [];
+
+            // Для межэтажного перехода определяем начальную точку
+            if (segment.isFloorTransition) {
+                // Используем fromFloor и toFloor для определения направления
+                // Если currentFloor == fromFloor -> мы на этаже, с которого уходим, показываем from
+                // Если currentFloor == toFloor -> мы на этаже, на который приходим, показываем to
+                const stairToShow = segment.fromFloor === currentFloor ? segment.from : segment.to;
+                allPoints.push({ x: stairToShow.x + stairToShow.width / 2, y: stairToShow.y + stairToShow.height / 2 });
+            } else {
+                allPoints.push({ x: segment.from.x + segment.from.width / 2, y: segment.from.y + segment.from.height / 2 });
+            }
+
+            // Проверяем, может это прямой путь (без коридоров)
+            if (segment.isDirect || (segment.path && Array.isArray(segment.path) && segment.path.length === 0)) {
+                // Прямой путь
+                if (segment.isFloorTransition) {
+                    // Для межэтажного перехода показываем индикатор лестницы
+                    const stairToShow = segment.fromFloor === currentFloor ? segment.from : segment.to;
+                    const stairCenter = { x: stairToShow.x + stairToShow.width / 2, y: stairToShow.y + stairToShow.height / 2 };
+                    // Добавляем небольшое смещение для визуализации
+                    allPoints.push({ x: stairCenter.x, y: stairCenter.y });
+                } else {
+                    // Обычный прямой путь на том же этаже
+                    allPoints.push({ x: segment.to.x + segment.to.width / 2, y: segment.to.y + segment.to.height / 2 });
+                }
+            } else {
+                // Обычный путь по коридорам
+                segment.path.forEach(pointId => {
+                    const parts = pointId.split('_p');
+                    const corridorId = parseInt(parts[0].substring(1));
+                    const pointIndex = parseInt(parts[1]);
+                    const corridor = corridors.find(c => c.id === corridorId);
+                    if (corridor && corridor.points[pointIndex]) allPoints.push(corridor.points[pointIndex]);
+                });
+                allPoints.push({ x: segment.to.x + segment.to.width / 2, y: segment.to.y + segment.to.height / 2 });
+            }
+
+            if (allPoints.length < 2) return;
+
+            let d = 'M ' + allPoints[0].x + ' ' + allPoints[0].y;
+            for (let i = 1; i < allPoints.length; i++) d += ' L ' + allPoints[i].x + ' ' + allPoints[i].y;
+            const pathElement = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+            pathElement.setAttribute('d', d);
+            pathElement.setAttribute('fill', 'none');
+            pathElement.setAttribute('stroke', '#e91e63');
+            pathElement.setAttribute('stroke-width', '4');
+            pathElement.setAttribute('stroke-linecap', 'round');
+            pathElement.setAttribute('stroke-linejoin', 'round');
+            pathElement.setAttribute('opacity', '0.8');
+            pathElement.classList.add('route-path');
+            svg.appendChild(pathElement);
+            highlightObjects([segment.from, segment.to]);
+        }
+
+        function updateObjectVisibility() {
+            objects.forEach(obj => {
+                const element = document.getElementById('obj-' + obj.id);
+                if (element) element.style.display = obj.floor == currentFloor ? 'flex' : 'none';
+            });
+            drawCorridors();
+        }
+    </script>
+</body>
+</html>
