@@ -527,23 +527,47 @@
 
             // Строим сегменты для каждого перехода
             const segments = [];
-            let lastStairId = null; // Запоминаем последнюю использованную лестницу
+            let lastStairId = preferredStairId; // ⚠️ ЖЁСТКОЕ ОГРАНИЧЕНИЕ: начинаем с preferredStairId!
 
             for (let i = 0; i < route.length - 1; i++) {
                 const fromFloor = route[i];
                 const toFloor = route[i + 1];
 
-                // Находим лестницу на fromFloor
-                const stairFrom = findStairBetweenFloors(objA, objB, fromFloor, toFloor, i, preferredStairId, lastStairId, route.length);
+                // ⚠️ ЖЁСТКОЕ ОГРАНИЧЕНИЕ: ВСЕГДА используем preferredStairId!
+                const stairFrom = objects.find(o =>
+                    o.type === 'stairs' &&
+                    o.stairId === preferredStairId &&
+                    o.floor === fromFloor
+                );
+                
                 if (!stairFrom) {
-                    showResult('Не найдена лестница с ' + fromFloor + ' на ' + toFloor + ' этаж!', 'error');
+                    console.error('❌ ОШИБКА: Лестница stairId=' + preferredStairId + ' не найдена на этаже ' + fromFloor);
+                    showResult('Не найдена лестница stairId=' + preferredStairId + ' на ' + fromFloor + ' этаже!', 'error');
                     return;
                 }
 
-                // Находим лестницу на toFloor
-                const stairTo = findConnectedStair(stairFrom, toFloor);
+                // Находим лестницу на toFloor с тем же stairId
+                const stairTo = objects.find(o =>
+                    o.type === 'stairs' &&
+                    o.stairId === preferredStairId &&
+                    o.floor === toFloor
+                );
+                
                 if (!stairTo) {
-                    showResult('Не найдено соединение лестниц!', 'error');
+                    console.error('❌ ОШИБКА: Лестница stairId=' + preferredStairId + ' не найдена на этаже ' + toFloor);
+                    showResult('Не найдена лестница stairId=' + preferredStairId + ' на ' + toFloor + ' этаже!', 'error');
+                    return;
+                }
+
+                // Проверяем соединение
+                const hasConnection = stairsConnections.some(c =>
+                    (c.from === stairFrom.id && c.toFloor === toFloor) ||
+                    (c.to === stairFrom.id && c.fromFloor === toFloor)
+                );
+                
+                if (!hasConnection) {
+                    console.error('❌ ОШИБКА: Нет соединения между лестницами stairId=' + preferredStairId);
+                    showResult('Нет соединения для лестницы stairId=' + preferredStairId, 'error');
                     return;
                 }
 
@@ -557,14 +581,12 @@
                     segmentFloor = fromFloor;
                 } else if (i === route.length - 2) {
                     // Последний сегмент - межэтажный переход + путь к objB
-                    // Сначала строим сегмент межэтажного перехода от stairFrom до stairTo
                     segmentFrom = stairFrom;
                     segmentTo = stairTo;
                     segmentFloor = fromFloor;
                     console.log('Последний сегмент (часть 1): межэтажный переход с ' + fromFloor + ' на ' + toFloor + ' этаж');
                 } else {
-                    // Промежуточные сегменты - межэтажный переход через stairFrom и stairTo
-                    // stairFrom на fromFloor, stairTo на toFloor
+                    // Промежуточные сегменты - межэтажный переход
                     segmentFrom = stairFrom;
                     segmentTo = stairTo;
                     segmentFloor = fromFloor;
@@ -572,22 +594,14 @@
                 }
 
                 // Строим сегмент
-                console.log('Строим сегмент ' + i + ': от ' + segmentFrom.label + ' (' + segmentFrom.floor + ' эт) до ' + segmentTo.label + ' (' + segmentTo.floor + ' эт)');
-                // Для межэтажных переходов передаем логические fromFloor/toFloor из маршрута
+                console.log('✅ Строим сегмент ' + i + ' через stairId=' + preferredStairId + ': от ' + segmentFrom.label + ' до ' + segmentTo.label);
                 const segment = buildRouteSegmentSmart(segmentFrom, segmentTo, segmentFloor, fromFloor, toFloor);
                 if (!segment) {
                     console.error('Не удалось построить сегмент ' + i + ' на этаже ' + fromFloor);
                     showResult('Не удалось построить маршрут на ' + fromFloor + ' этаже!', 'error');
                     return;
                 }
-                console.log('Сегмент ' + i + ' построен успешно');
                 segments.push(segment);
-
-                // Обновляем lastStairId на основе stairId целевой лестницы сегмента
-                if (segmentTo.type === 'stairs') {
-                    lastStairId = segmentTo.stairId;
-                    console.log('Обновляем lastStairId на ' + lastStairId);
-                }
             }
 
             // Добавляем промежуточные сегменты для маршрутов между лестницами на промежуточных этажах
