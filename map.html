@@ -754,7 +754,13 @@
         }
 
         function findStairBetweenFloors(objA, objB, fromFloor, toFloor, segmentIndex, preferredStairId, lastStairId, routeLength) {
-            // Для последнего сегмента проверяем, есть ли у objB привязанная лестница, доступная с fromFloor
+            // ================================================================================
+            // ⚠️ ЖЁСТКОЕ ОГРАНИЧЕНИЕ: МАРШРУТ ДОЛЖЕН ИДТИ ЧЕРЕЗ ОДНУ И ТУ ЖЕ ЛЕСТНИЦУ (stairId)
+            // ================================================================================
+            // Если маршрут начался через лестницу с ID 1, то и выйти должен через лестницу с ID 1!
+            // ================================================================================
+            
+            // Для последнего сегмента проверяем, есть ли у objB привязанная лестница
             const isLastSegment = (segmentIndex === routeLength - 2);
             if (isLastSegment) {
                 let objBStairIds = [];
@@ -779,7 +785,7 @@
                             );
 
                             if (hasConnection) {
-                                console.log('Последний сегмент: используем лестницу ' + stairId + ' (привязана к objB)');
+                                console.log('✅ ПОСЛЕДНИЙ СЕГМЕНТ: используем лестницу ' + stairId + ' (привязана к objB)');
                                 return objBStairOnFromFloor;
                             }
                         }
@@ -787,7 +793,9 @@
                 }
             }
 
-            // Сначала проверяем, можно ли использовать preferredStairId (если задан)
+            // ================================================================================
+            // ⚠️ ПРИОРИТЕТ #1: ВСЕГДА ИСПОЛЬЗУЕМ preferredStairId (ЕСЛИ ЗАДАН)
+            // ================================================================================
             if (preferredStairId) {
                 const preferredStair = objects.find(o =>
                     o.type === 'stairs' &&
@@ -802,14 +810,19 @@
                     );
 
                     if (hasConnection) {
-                        console.log('Используем предпочтительную лестницу ' + preferredStair.stairId);
+                        console.log('✅ ИСПОЛЬЗУЕМ preferredStairId=' + preferredStair.stairId + ' (жёсткое ограничение)');
                         return preferredStair;
+                    } else {
+                        console.error('❌ ОШИБКА: Лестница stairId=' + preferredStairId + ' не имеет соединения на этаж ' + toFloor);
                     }
+                } else {
+                    console.error('❌ ОШИБКА: Лестница stairId=' + preferredStairId + ' не найдена на этаже ' + fromFloor);
                 }
             }
 
-            // Затем проверяем, можно ли продолжить через lastStairId (предыдущую лестницу)
-            // Это работает для всех сегментов, кроме первого
+            // ================================================================================
+            // ⚠️ ПРИОРИТЕТ #2: ПРОДОЛЖАЕМ ЧЕРЕЗ lastStairId (ЧТОБЫ НЕ МЕНЯТЬ ЛЕСТНИЦУ)
+            // ================================================================================
             if (lastStairId && segmentIndex > 0) {
                 const continueStair = objects.find(o =>
                     o.type === 'stairs' &&
@@ -824,13 +837,19 @@
                     );
 
                     if (hasConnection) {
-                        console.log('Продолжаем через лестницу ' + continueStair.stairId);
+                        console.log('✅ ПРОДОЛЖАЕМ через lastStairId=' + continueStair.stairId + ' (жёсткое ограничение)');
                         return continueStair;
+                    } else {
+                        console.error('❌ ОШИБКА: Лестница stairId=' + lastStairId + ' не имеет соединения на этаж ' + toFloor);
                     }
+                } else {
+                    console.error('❌ ОШИБКА: Лестница stairId=' + lastStairId + ' не найдена на этаже ' + fromFloor);
                 }
             }
 
-            // Для первого сегмента проверяем, есть ли у objA привязанные лестницы
+            // ================================================================================
+            // ⚠️ ПРИОРИТЕТ #3: ПЕРВЫЙ СЕГМЕНТ - ИСПОЛЬЗУЕМ ПРИВЯЗКУ objA
+            // ================================================================================
             if (segmentIndex === 0) {
                 // Получаем привязанные лестницы (поддержка обоих форматов)
                 let stairIds = [];
@@ -841,7 +860,7 @@
                 }
 
                 if (stairIds.length > 0) {
-                    console.log('Объект ' + objA.label + ' привязан к лестницам: ' + stairIds.join(', '));
+                    console.log('📍 Объект ' + objA.label + ' привязан к лестницам: ' + stairIds.join(', '));
 
                     // Пытаемся найти подходящую лестницу
                     for (const stairId of stairIds) {
@@ -859,16 +878,20 @@
                             );
 
                             if (hasConnection) {
-                                console.log('Используем привязанную лестницу ' + connectedStair.stairId + ' для перехода на этаж ' + toFloor);
+                                console.log('✅ ИСПОЛЬЗУЕМ привязанную лестницу stairId=' + connectedStair.stairId + ' (жёсткое ограничение)');
                                 return connectedStair;
                             }
                         }
                     }
-                    console.warn('Ни одна из привязанных лестниц не ведет на этаж ' + toFloor);
+                    console.warn('⚠️ Ни одна из привязанных лестниц не ведет на этаж ' + toFloor);
                 }
             }
 
-            // Ищем любую лестницу с соединением на нужный этаж
+            // ================================================================================
+            // ⚠️ ПРИОРИТЕТ #4: НЕТ ПРИВЯЗОК - ИЩЕМ ЛЮБУЮ ЛЕСТНИЦУ (НЕ ДОЛЖНО СЛУЧИТЬСЯ!)
+            // ================================================================================
+            console.warn('⚠️ ВНИМАНИЕ: Не найдено привязок, ищем любую лестницу (это плохо!)');
+            
             const possibleStairs = objects.filter(o => o.type === 'stairs' && o.floor === fromFloor);
             let bestStair = null;
             let minDist = Infinity;
