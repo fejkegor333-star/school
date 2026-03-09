@@ -89,7 +89,14 @@
     <div class="toolbar">
         <h2>🧭 Навигатор</h2>
         <button class="theme-toggle" onclick="toggleTheme()" title="Переключить тему">🌓</button>
-        <div id="loadingMsg" class="loading">Загрузка карты...</div>
+        <div class="action-buttons">
+            <button class="btn btn-primary" onclick="document.getElementById('loadFile').click()">📂 Выбрать файл school-map.json</button>
+            <input type="file" id="loadFile" accept=".json" style="display: none;" onchange="loadMap(this)">
+        </div>
+        <div id="loadingMsg" class="loading">
+            <p style="font-size: 16px; margin-bottom: 15px;">👋 Добро пожаловать в навигатор по школе!</p>
+            <p>Нажмите кнопку выше и выберите файл <strong>school-map.json</strong></p>
+        </div>
         <div id="searchForm" class="search-form" style="display: none;">
             <div class="form-group">
                 <label>📍 Откуда (точка А):</label>
@@ -143,73 +150,8 @@
 
         document.addEventListener('DOMContentLoaded', function() {
             initFloorButtons();
-            autoLoadMap();  // Автоматическая загрузка карты
+            // Автозагрузка отключена для локальной версии
         });
-
-        // ============================================
-        // АВТОМАТИЧЕСКАЯ ЗАГРУЗКА КАРТЫ
-        // ============================================
-
-        function autoLoadMap() {
-            // Пробуем загрузить через fetch (работает на сервере)
-            fetch('school-map.json')
-                .then(response => {
-                    if (!response.ok) {
-                        throw new Error('Файл не найден');
-                    }
-                    return response.json();
-                })
-                .then(data => {
-                    loadMapData(data);
-                })
-                .catch(err => {
-                    console.log('⚠️ fetch не работает (локальный файл). Пробую альтернативный способ...');
-                    // Если fetch не работает (локально), пробуем через XHR
-                    loadMapLocal();
-                });
-        }
-
-        function loadMapLocal() {
-            const xhr = new XMLHttpRequest();
-            xhr.open('GET', 'school-map.json', false);  // Синхронный запрос
-            try {
-                xhr.send(null);
-                if (xhr.status === 200 || xhr.status === 0) {
-                    const data = JSON.parse(xhr.responseText);
-                    loadMapData(data);
-                    console.log('✅ Карта загружена локально');
-                    return;
-                }
-            } catch (e) {
-                // Игнорируем
-            }
-            
-            // Если не получилось — показываем форму загрузки
-            console.log('⚠️ Не удалось загрузить school-map.json автоматически');
-            document.getElementById('loadingMsg').textContent = 'Откройте файл через проводник:';
-            
-            // Добавляем кнопку загрузки
-            const loadBtn = document.createElement('div');
-            loadBtn.className = 'action-buttons';
-            loadBtn.style.marginTop = '10px';
-            loadBtn.innerHTML = '<button class="btn btn-primary" onclick="document.getElementById(\'loadFile\').click()">📂 Выбрать school-map.json</button><input type="file" id="loadFile" accept=".json" style="display: none;" onchange="loadMap(this)">';
-            document.querySelector('.toolbar').insertBefore(loadBtn, document.getElementById('searchForm'));
-        }
-
-        function loadMapData(data) {
-            objects = data.objects || [];
-            corridors = data.corridors || [];
-            console.log('✅ Карта автоматически загружена из school-map.json');
-            console.log('Загружено объектов:', objects.length);
-            console.log('Загружено коридоров:', corridors.length);
-
-            initStairsConnections();
-            populateSearchLists();
-            renderObjects();
-            drawCorridors();
-            document.getElementById('loadingMsg').style.display = 'none';
-            document.getElementById('searchForm').style.display = 'flex';
-        }
 
         function loadMap(input) {
             const file = input.files[0];
@@ -218,7 +160,17 @@
             reader.onload = function(e) {
                 try {
                     const data = JSON.parse(e.target.result);
-                    loadMapData(data);
+                    objects = data.objects || [];
+                    corridors = data.corridors || [];
+                    console.log('Загружено объектов:', objects.length);
+                    console.log('Загружено коридоров:', corridors.length);
+
+                    initStairsConnections();
+                    populateSearchLists();
+                    renderObjects();
+                    drawCorridors();
+                    document.getElementById('loadingMsg').style.display = 'none';
+                    document.getElementById('searchForm').style.display = 'flex';
                 } catch (err) {
                     console.error('Ошибка загрузки карты:', err);
                     document.getElementById('loadingMsg').textContent = 'Ошибка! Неверный формат JSON';
@@ -455,6 +407,14 @@
                 return;
             }
 
+            // === ВСПОМОГАТЕЛЬНАЯ ФУНКЦИЯ ===
+            function distanceBetweenObjects(a, b) {
+                const aCenter = { x: a.x + a.width / 2, y: a.y + a.height / 2 };
+                const bCenter = { x: b.x + b.width / 2, y: b.y + b.height / 2 };
+                return Math.sqrt(Math.pow(bCenter.x - aCenter.x, 2) + Math.pow(bCenter.y - aCenter.y, 2));
+            }
+            // ================================
+
             // Для разных этажей - ищем маршрут через граф этажей
             const route = findRouteThroughFloors(objA, objB, startFloor, endFloor);
             if (!route) {
@@ -462,108 +422,93 @@
                 return;
             }
 
-            // Сначала определяем оптимальную лестницу (stairId) для всего маршрута
-            // Для сложных маршрутов через промежуточные этажи предпочитаем использовать одну и ту же лестницу
+            // === ИСПРАВЛЕНИЕ: Всегда выбираем preferredStairId ===
             let preferredStairId = null;
 
-            if (route.length > 2) {
-                // Для сложных маршрутов (через промежуточные этажи) ищем оптимальную лестницу
-                // Проверяем два случая:
-                // 1. Прямой маршрут (objA → ... → objB): ищем лестницу, привязанную к objB
-                // 2. Обратный маршрут (objB → ... → objA): ищем лестницу, привязанную к objA
-
-                // Случай 1: objB привязан к лестнице (прямой маршрут)
-                const startFloorStairs = objects.filter(o => o.type === 'stairs' && o.floor === objA.floor);
-
-                for (const startStair of startFloorStairs) {
-                    let currentStairId = startStair.stairId;
-                    let validRoute = true;
-
+            // Сначала пытаемся использовать stairId из привязок objA
+            if (objA.connectedStairIds && objA.connectedStairIds.length > 0) {
+                for (const stairId of objA.connectedStairIds) {
                     // Проверяем, есть ли эта лестница на всех этажах маршрута
-                    for (let j = 0; j < route.length - 1; j++) {
-                        const checkFloor = route[j];
-                        const nextFloor = route[j + 1];
-
+                    let validForAllFloors = true;
+                    for (const floor of route) {
                         const stairOnFloor = objects.find(o =>
                             o.type === 'stairs' &&
-                            o.floor === checkFloor &&
-                            o.stairId === currentStairId
+                            o.stairId === stairId &&
+                            o.floor === floor
                         );
-
                         if (!stairOnFloor) {
-                            validRoute = false;
-                            break;
-                        }
-
-                        // Проверяем, есть ли соединение на следующий этаж
-                        const hasConnection = stairsConnections.some(c =>
-                            (c.from === stairOnFloor.id && c.toFloor === nextFloor) ||
-                            (c.to === stairOnFloor.id && c.fromFloor === nextFloor)
-                        );
-
-                        if (!hasConnection) {
-                            validRoute = false;
+                            validForAllFloors = false;
                             break;
                         }
                     }
-
-                    if (validRoute) {
-                        // Проверяем, есть ли у objB привязка к этой лестнице
-                        if (objB.connectedStairIds && objB.connectedStairIds.includes(currentStairId)) {
-                            preferredStairId = currentStairId;
-                            console.log('Найдена оптимальная лестница для прямого маршрута (привязка к objB): ' + currentStairId);
-                            break;
-                        }
-                    }
-                }
-
-                // Случай 2: objA привязан к лестнице (обратный маршрут)
-                if (!preferredStairId) {
-                    const endFloorStairs = objects.filter(o => o.type === 'stairs' && o.floor === objB.floor);
-
-                    for (const endStair of endFloorStairs) {
-                        let currentStairId = endStair.stairId;
-                        let validRoute = true;
-
-                        // Проверяем, есть ли эта лестница на всех этажах маршрута (в обратном порядке)
-                        for (let j = 0; j < route.length - 1; j++) {
-                            const checkFloor = route[j];
-                            const nextFloor = route[j + 1];
-
-                            const stairOnFloor = objects.find(o =>
-                                o.type === 'stairs' &&
-                                o.floor === checkFloor &&
-                                o.stairId === currentStairId
-                            );
-
-                            if (!stairOnFloor) {
-                                validRoute = false;
-                                break;
-                            }
-
-                            // Проверяем, есть ли соединение на следующий этаж
-                            const hasConnection = stairsConnections.some(c =>
-                                (c.from === stairOnFloor.id && c.toFloor === nextFloor) ||
-                                (c.to === stairOnFloor.id && c.fromFloor === nextFloor)
-                            );
-
-                            if (!hasConnection) {
-                                validRoute = false;
-                                break;
-                            }
-                        }
-
-                        if (validRoute) {
-                            // Проверяем, есть ли у objA привязка к этой лестнице
-                            if (objA.connectedStairIds && objA.connectedStairIds.includes(currentStairId)) {
-                                preferredStairId = currentStairId;
-                                console.log('Найдена оптимальная лестница для обратного маршрута (привязка к objA): ' + currentStairId);
-                                break;
-                            }
-                        }
+                    if (validForAllFloors) {
+                        preferredStairId = stairId;
+                        console.log('Используем stairId из привязок objA: ' + stairId);
+                        break;
                     }
                 }
             }
+
+            // Если у objA нет подходящей привязки, пробуем objB
+            if (!preferredStairId && objB.connectedStairIds && objB.connectedStairIds.length > 0) {
+                for (const stairId of objB.connectedStairIds) {
+                    // Проверяем, есть ли эта лестница на всех этажах маршрута
+                    let validForAllFloors = true;
+                    for (const floor of route) {
+                        const stairOnFloor = objects.find(o =>
+                            o.type === 'stairs' &&
+                            o.stairId === stairId &&
+                            o.floor === floor
+                        );
+                        if (!stairOnFloor) {
+                            validForAllFloors = false;
+                            break;
+                        }
+                    }
+                    if (validForAllFloors) {
+                        preferredStairId = stairId;
+                        console.log('Используем stairId из привязок objB: ' + stairId);
+                        break;
+                    }
+                }
+            }
+
+            // Если нет привязок, выбираем ближайшую лестницу от objA
+            if (!preferredStairId) {
+                const stairsOnStartFloor = objects.filter(o =>
+                    o.type === 'stairs' && o.floor === startFloor
+                );
+                
+                let minDist = Infinity;
+                for (const stair of stairsOnStartFloor) {
+                    // Проверяем, есть ли эта лестница на всех этажах
+                    let validForAllFloors = true;
+                    for (const floor of route) {
+                        const stairOnFloor = objects.find(o =>
+                            o.type === 'stairs' &&
+                            o.stairId === stair.stairId &&
+                            o.floor === floor
+                        );
+                        if (!stairOnFloor) {
+                            validForAllFloors = false;
+                            break;
+                        }
+                    }
+                    
+                    if (validForAllFloors) {
+                        const dist = distanceBetweenObjects(objA, stair);
+                        if (dist < minDist) {
+                            minDist = dist;
+                            preferredStairId = stair.stairId;
+                        }
+                    }
+                }
+                
+                if (preferredStairId) {
+                    console.log('Используем ближайшую лестницу: ' + preferredStairId);
+                }
+            }
+            // === КОНЕЦ ИСПРАВЛЕНИЯ ===
 
             // Строим сегменты для каждого перехода
             const segments = [];
