@@ -425,9 +425,21 @@
             // === ИСПРАВЛЕНИЕ: Всегда выбираем preferredStairId ===
             let preferredStairId = null;
 
+            // Вспомогательная функция для получения stairIds из объекта
+            function getStairIdsFromObject(obj) {
+                if (obj.connectedStairIds && obj.connectedStairIds.length > 0) {
+                    return obj.connectedStairIds;
+                }
+                if (obj.connectedStairId) {
+                    return [obj.connectedStairId];
+                }
+                return [];
+            }
+
             // Сначала пытаемся использовать stairId из привязок objA
-            if (objA.connectedStairIds && objA.connectedStairIds.length > 0) {
-                for (const stairId of objA.connectedStairIds) {
+            const objAStairIds = getStairIdsFromObject(objA);
+            if (objAStairIds.length > 0) {
+                for (const stairId of objAStairIds) {
                     // Проверяем, есть ли эта лестница на всех этажах маршрута
                     let validForAllFloors = true;
                     for (const floor of route) {
@@ -450,25 +462,28 @@
             }
 
             // Если у objA нет подходящей привязки, пробуем objB
-            if (!preferredStairId && objB.connectedStairIds && objB.connectedStairIds.length > 0) {
-                for (const stairId of objB.connectedStairIds) {
-                    // Проверяем, есть ли эта лестница на всех этажах маршрута
-                    let validForAllFloors = true;
-                    for (const floor of route) {
-                        const stairOnFloor = objects.find(o =>
-                            o.type === 'stairs' &&
-                            o.stairId === stairId &&
-                            o.floor === floor
-                        );
-                        if (!stairOnFloor) {
-                            validForAllFloors = false;
+            if (!preferredStairId) {
+                const objBStairIds = getStairIdsFromObject(objB);
+                if (objBStairIds.length > 0) {
+                    for (const stairId of objBStairIds) {
+                        // Проверяем, есть ли эта лестница на всех этажах маршрута
+                        let validForAllFloors = true;
+                        for (const floor of route) {
+                            const stairOnFloor = objects.find(o =>
+                                o.type === 'stairs' &&
+                                o.stairId === stairId &&
+                                o.floor === floor
+                            );
+                            if (!stairOnFloor) {
+                                validForAllFloors = false;
+                                break;
+                            }
+                        }
+                        if (validForAllFloors) {
+                            preferredStairId = stairId;
+                            console.log('Используем stairId из привязок objB: ' + stairId);
                             break;
                         }
-                    }
-                    if (validForAllFloors) {
-                        preferredStairId = stairId;
-                        console.log('Используем stairId из привязок objB: ' + stairId);
-                        break;
                     }
                 }
             }
